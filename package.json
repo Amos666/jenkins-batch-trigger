@@ -11,7 +11,7 @@
   },
   "categories": ["Other"],
   "main": "./out/extension.js",
-  "icon": "media/icon.svg",
+  "icon": "media/icon.png",
   "activationEvents": [
     "onView:jenkins-batch-trigger.explorer",
     "onCommand:jenkins-batch-trigger.configConn",
