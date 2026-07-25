@@ -37,8 +37,41 @@ export function activate(context: vscode.ExtensionContext): void {
     async getProxyUrl(): Promise<string | undefined> {
       const httpCfg = vscode.workspace.getConfiguration("http");
       const proxy = httpCfg.get<string>("proxy");
-      if (proxy) return proxy || undefined;
-      return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.http_proxy || process.env.https_proxy || undefined;
+      if (!proxy) {
+        return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.http_proxy || process.env.https_proxy || undefined;
+      }
+      return proxy || undefined;
+    },
+    async shouldUseProxy(url: string): Promise<boolean> {
+      const httpCfg = vscode.workspace.getConfiguration("http");
+      const excludeUrls = httpCfg.get<string[]>("proxyExcludeUrls") || [];
+      for (const pattern of excludeUrls) {
+        try {
+          if (pattern.startsWith("*") || pattern.includes("*")) {
+            const regexPattern = pattern.replace(/\*/g, ".*");
+            if (new RegExp(regexPattern, "i").test(url)) {
+              return false;
+            }
+          } else if (url.includes(pattern)) {
+            return false;
+          }
+        } catch {
+          /* ignore regex errors */
+        }
+      }
+      const noProxyEnv = process.env.NO_PROXY || process.env.no_proxy || "";
+      for (const pattern of noProxyEnv.split(",").map((s) => s.trim())) {
+        if (!pattern) continue;
+        if (pattern.startsWith("*") || pattern.includes("*")) {
+          const regexPattern = pattern.replace(/\*/g, ".*");
+          if (new RegExp(regexPattern, "i").test(url)) {
+            return false;
+          }
+        } else if (url.includes(pattern)) {
+          return false;
+        }
+      }
+      return true;
     },
   };
 

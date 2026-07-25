@@ -15,6 +15,7 @@ export interface JenkinsCredsProvider {
   writeSettings(settings: Partial<JenkinsSettings>): Promise<void>;
   saveToken(token: string): Promise<void>;
   getProxyUrl(): Promise<string | undefined>;
+  shouldUseProxy(url: string): Promise<boolean>;
 }
 
 interface RawResp {
@@ -79,8 +80,15 @@ export class JenkinsClient {
    */
   private async getProxyAgent(
     targetProtocol: string,
+    targetUrl: string,
     trustSelfSignedCert: boolean
   ): Promise<http.Agent | https.Agent | undefined> {
+    const useProxy = await this.creds.shouldUseProxy(targetUrl);
+    if (!useProxy) {
+      this.log(`↺ 绕过代理: ${targetUrl}（匹配代理排除规则）`);
+      return undefined;
+    }
+
     const proxyUrl = await this.creds.getProxyUrl();
     if (!proxyUrl) return undefined;
 
@@ -178,7 +186,7 @@ export class JenkinsClient {
       headers["Content-Length"] = String(Buffer.byteLength(body));
     }
 
-    const proxyAgent = await this.getProxyAgent(u.protocol, s.trustSelfSignedCert);
+    const proxyAgent = await this.getProxyAgent(u.protocol, fullUrl, s.trustSelfSignedCert);
     const agent = proxyAgent || this.getDirectAgent(s.trustSelfSignedCert);
 
     return new Promise<RawResp>((resolve, reject) => {
@@ -258,6 +266,11 @@ export class JenkinsClient {
         `Jenkins 认证失败（HTTP ${r.status}）。请检查用户名和 API Token 是否正确。`
       );
     }
+    if (r.status === 503) {
+      throw new Error(
+        `代理服务器返回服务不可用（HTTP 503）。如果 Jenkins 是内网服务器，请在 VSCode 设置中添加「http.proxyExcludeUrls」规则来绕过代理访问 Jenkins。例如：添加 "http://your-jenkins-url/*" 到排除列表。`
+      );
+    }
     if (r.status >= 300 && r.status < 400) {
       throw new Error(
         `Jenkins 返回重定向（HTTP ${r.status}），请检查 URL 是否正确（可能缺少上下文路径或末尾斜杠）。`
@@ -272,7 +285,6 @@ export class JenkinsClient {
     try {
       return JSON.parse(r.body) as T;
     } catch (e) {
-      // Jenkins might return HTML (login page) instead of JSON.
       const isHtml = r.body.trimStart().startsWith("<");
       throw new Error(
         isHtml
