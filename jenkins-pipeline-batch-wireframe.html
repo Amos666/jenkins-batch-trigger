@@ -1,0 +1,1068 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jenkins Pipeline Batch Runner · VSCode 插件线框</title>
+<style>
+  :root{
+    --bg:#1e1e1e; --sidebar:#252526; --activitybar:#333333; --panel:#1e1e1e; --border:#333333;
+    --text:#cccccc; --text-dim:#9d9d9d; --text-faint:#6e6e6e;
+    --accent:#0e639c; --accent-h:#1177bb;
+    --hover:#2a2d2e; --active:#37373d; --input:#3c3c3c;
+    --green:#89d185; --red:#f48771; --blue:#569cd6; --yellow:#d7ba7d; --gray:#808080;
+    --chip:#2d2d2d; --titlebar:#323233;
+    --row-hover:#2a2d2e;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+    font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;font-size:13px;}
+  .app{display:flex;flex-direction:column;height:100vh;overflow:hidden;}
+
+  /* ===== VSCode 顶栏（命令中心风格） ===== */
+  .titlebar{display:flex;align-items:center;gap:10px;padding:7px 12px;
+    background:var(--titlebar);border-bottom:1px solid var(--border);}
+  .titlebar .logo{width:20px;height:20px;border-radius:4px;background:var(--accent);
+    display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:12px;}
+  .titlebar h1{font-size:13px;margin:0;font-weight:600;}
+  .titlebar .crumb{color:var(--text-dim);font-size:12px;}
+  .titlebar .conn{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-dim);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 5px var(--green);}
+  .dot.off{background:var(--red);box-shadow:0 0 5px var(--red);}
+  .btn{cursor:pointer;border:1px solid var(--border);background:var(--input);color:var(--text);
+    padding:4px 11px;border-radius:4px;font-size:12px;display:inline-flex;align-items:center;gap:5px;}
+  .btn:hover{background:#454545;}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn.primary:hover{background:var(--accent-h);}
+  .btn.ghost{background:transparent;border-color:transparent;}
+  .btn.ghost:hover{background:var(--hover);}
+  .btn.icon{padding:4px 7px;}
+  .btn.sm{padding:3px 8px;font-size:11px;}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;}
+  .btn.danger{background:#5a2d2d;border-color:#7a3a3a;color:var(--red);}
+  .btn.danger:hover{background:#6e3636;}
+  .link.warn{color:var(--red);}
+  #paramTplLabel{color:var(--blue);font-weight:600;}
+  .btn .pcount{opacity:.7;font-size:11px;}
+  .qbadge{display:inline-block;background:#2d3f5a;color:#569cd6;border:1px solid #3a5478;
+    padding:1px 7px;border-radius:9px;font-size:11px;font-weight:600;white-space:nowrap;}
+  .build-link{font-family:"SFMono-Regular",Consolas,monospace;}
+
+  /* ===== 主体三栏 ===== */
+  .main{flex:1;display:flex;overflow:hidden;}
+  .leftbar{width:248px;background:var(--sidebar);border-right:1px solid var(--border);
+    display:flex;flex-direction:column;overflow:hidden;}
+  .center{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+
+  /* 左栏：视图/分组/模板 */
+  .lb-section{border-bottom:1px solid var(--border);overflow:hidden;}
+  .lb-head{display:flex;align-items:center;justify-content:space-between;
+    padding:8px 12px 4px;font-size:11px;font-weight:600;color:var(--text-dim);
+    text-transform:uppercase;letter-spacing:.5px;user-select:none;}
+  .lb-head .lb-actions{display:flex;gap:2px;}
+  .lb-head .lb-actions .btn{padding:2px 6px;font-size:11px;}
+  .lb-list{padding:2px 6px 8px;overflow:auto;max-height:230px;}
+  .lb-item{display:flex;align-items:center;gap:8px;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;}
+  .lb-item:hover{background:var(--hover);}
+  .lb-item.active{background:var(--accent);color:#fff;}
+  .lb-item .ico{width:14px;text-align:center;opacity:.8;}
+  .lb-item .cnt{margin-left:auto;font-size:10px;color:var(--text-faint);background:#2d2d2d;padding:1px 6px;border-radius:8px;}
+  .lb-item.active .cnt{background:rgba(255,255,255,.2);color:#fff;}
+  .lb-item .del{opacity:0;font-size:12px;color:var(--red);padding:0 3px;}
+  .lb-item:hover .del{opacity:.7;}
+  .lb-item .del:hover{opacity:1;}
+  .lb-empty{padding:8px 12px;font-size:11px;color:var(--text-faint);font-style:italic;}
+
+  /* 左栏分组（按 folder 数据分组，可折叠 + 全选） */
+  .lb-group{margin:2px 6px 4px;}
+  .lb-group>.ghead{display:flex;align-items:center;gap:6px;padding:4px 8px;border-radius:4px;cursor:pointer;font-size:12px;user-select:none;}
+  .lb-group>.ghead:hover{background:var(--hover);}
+  .lb-group>.ghead.active{background:rgba(14,99,156,.25);color:#fff;}
+  .lb-group>.ghead .chev{width:12px;color:var(--text-dim);transition:transform .15s;flex:0 0 12px;text-align:center;}
+  .lb-group.collapsed>.ghead .chev{transform:rotate(-90deg);}
+  .lb-group>.ghead .gname{font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .lb-group>.ghead .gcount{margin-left:auto;font-size:10px;color:var(--text-faint);background:#2d2d2d;padding:1px 6px;border-radius:8px;flex:0 0 auto;}
+  .lb-group>.ghead .selall{flex:0 0 auto;font-size:10px;color:var(--blue);padding:1px 7px;border-radius:8px;border:1px solid #3a3a3a;cursor:pointer;white-space:nowrap;}
+  .lb-group>.ghead .selall:hover{background:var(--accent);color:#fff;border-color:var(--accent);}
+  .lb-group>.gbody{display:block;padding:1px 0 1px 14px;}
+  .lb-group.collapsed>.gbody{display:none;}
+  .lb-group .grow{display:flex;align-items:center;gap:6px;padding:3px 8px;border-radius:4px;cursor:pointer;font-size:11px;color:var(--text-dim);}
+  .lb-group .grow:hover{background:var(--hover);color:var(--text);}
+  .lb-group .grow .rchk{width:12px;height:12px;border:1px solid #5a5a5a;border-radius:2px;flex:0 0 12px;position:relative;}
+  .lb-group .grow.on .rchk{background:var(--accent);border-color:var(--accent);}
+  .lb-group .grow.on .rchk:after{content:"";position:absolute;left:3px;top:0;width:4px;height:7px;border:solid #fff;border-width:0 2px 2px 0;transform:rotate(45deg);}
+  .lb-group .grow.on .gname{color:#fff;}
+
+  /* 左栏「全选所有 pipeline」行（替代原 All 分组） */
+  .lb-selectall{display:flex;align-items:center;gap:8px;padding:5px 12px 7px;font-size:12px;cursor:pointer;user-select:none;}
+  .lb-selectall:hover{background:var(--hover);}
+  .lb-selectall input{accent-color:var(--accent);width:13px;height:13px;cursor:pointer;}
+  .lb-selectall .lbl{flex:1;font-weight:500;}
+  .lb-selectall .cnt{font-size:10px;color:var(--text-faint);background:#2d2d2d;padding:1px 6px;border-radius:8px;}
+
+  /* ===== 工具栏（顶部：搜索 + 筛选 + 触发动作） ===== */
+  .toolbar{display:flex;align-items:center;gap:8px;padding:8px 12px;flex-wrap:wrap;
+    background:var(--sidebar);border-bottom:1px solid var(--border);}
+  .search{flex:1;min-width:160px;display:flex;align-items:center;gap:6px;background:var(--input);
+    border:1px solid #333;border-radius:4px;padding:4px 8px;}
+  .search input{background:transparent;border:none;outline:none;color:var(--text);flex:1;font-size:12px;}
+  .chips{display:flex;gap:5px;flex-wrap:wrap;}
+  .chip{cursor:pointer;padding:3px 9px;border-radius:11px;background:var(--chip);border:1px solid #3a3a3a;
+    color:var(--text-dim);font-size:11px;user-select:none;}
+  .chip.on{color:#fff;border-color:#555;background:#3a3a3a;}
+  .chip .sw{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:4px;vertical-align:middle;}
+  .divider{width:1px;height:20px;background:var(--border);}
+  .autoref{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--text-dim);}
+  .autoref select{background:var(--input);color:var(--text);border:1px solid #333;border-radius:4px;padding:3px;font-size:11px;}
+  .toolbar .spacer{flex:1;}
+
+  /* ===== 列表 ===== */
+  .tablewrap{flex:1;overflow:auto;}
+  table{width:100%;border-collapse:collapse;}
+  thead th{position:sticky;top:0;background:#252526;text-align:left;padding:8px 10px;
+    font-size:11px;color:var(--text-dim);font-weight:600;border-bottom:1px solid var(--border);z-index:1;white-space:nowrap;}
+  tbody tr{border-bottom:1px solid #2a2a2a;}
+  tbody tr:hover{background:var(--row-hover);}
+  tbody tr.sel{background:rgba(14,99,156,.12);}
+  tbody td{padding:9px 10px;font-size:12px;vertical-align:middle;}
+  .col-check{width:34px;}
+  .name{color:#e8e8e8;font-weight:500;}
+  .sub{color:var(--text-dim);font-size:11px;}
+  .folder-tag{display:inline-block;font-size:10px;background:#2d2d2d;color:var(--text-dim);
+    padding:1px 6px;border-radius:8px;margin-right:4px;}
+  .badge{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:11px;
+    font-size:11px;font-weight:600;white-space:nowrap;}
+  .badge .sw{width:8px;height:8px;border-radius:50%;}
+  .b-success{background:rgba(137,209,133,.15);color:var(--green);} .b-success .sw{background:var(--green);}
+  .b-failed{background:rgba(244,135,113,.15);color:var(--red);} .b-failed .sw{background:var(--red);}
+  .b-running{background:rgba(86,156,214,.15);color:var(--blue);} .b-running .sw{background:var(--blue);animation:pulse 1s infinite;}
+  .b-unstable{background:rgba(215,186,125,.15);color:var(--yellow);} .b-unstable .sw{background:var(--yellow);}
+  .b-aborted{background:rgba(128,128,128,.15);color:var(--gray);} .b-aborted .sw{background:var(--gray);}
+  .b-idle{background:rgba(128,128,128,.1);color:var(--text-dim);} .b-idle .sw{background:var(--text-dim);}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+  .link{color:var(--blue);cursor:pointer;font-size:11px;}
+  .link:hover{text-decoration:underline;}
+  .empty-state{padding:40px 20px;text-align:center;color:var(--text-faint);font-size:12px;}
+
+  /* ===== 底部操作栏（选择摘要 + 日志 + 清除） ===== */
+  .actionbar{display:flex;align-items:center;gap:10px;padding:9px 12px;
+    background:#252526;border-top:1px solid var(--border);flex-wrap:wrap;}
+  .actionbar .sel{font-size:12px;color:var(--text-dim);}
+  .actionbar .sel b{color:#fff;}
+  .actionbar .spacer{flex:1;}
+  .logtoggle{cursor:pointer;user-select:none;}
+
+  /* ===== 活动日志 ===== */
+  .logpanel{display:none;max-height:110px;overflow:auto;border-top:1px solid var(--border);
+    background:#1b1b1b;padding:5px 12px;font-size:11px;color:var(--text-dim);font-family:Consolas,monospace;}
+  .logpanel.show{display:block;}
+  .logpanel div{padding:1px 0;}
+  .logpanel .ok{color:var(--green);} .logpanel .err{color:var(--red);} .logpanel .info{color:var(--blue);}
+
+  /* ===== Modal ===== */
+  .overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:center;justify-content:center;z-index:50;}
+  .overlay.show{display:flex;}
+  .modal{width:560px;max-width:92vw;max-height:88vh;background:#252526;border:1px solid var(--border);border-radius:8px;
+    box-shadow:0 12px 48px rgba(0,0,0,.6);overflow:hidden;display:flex;flex-direction:column;}
+  .modal h3{margin:0;padding:14px 16px;font-size:13px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;}
+  .modal .body{padding:14px 16px;overflow:auto;}
+  .modal .foot{padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;justify-content:flex-end;background:#222;}
+  .modal input[type=text]{background:var(--input);border:1px solid #333;border-radius:4px;color:var(--text);padding:6px 8px;font-size:12px;width:100%;outline:none;}
+  .modal input[type=text]:focus{border-color:var(--accent);}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:11px;color:var(--text-dim);margin-bottom:4px;}
+  .kv-row{display:flex;gap:8px;margin-bottom:7px;align-items:center;}
+  .kv-row input{flex:1;}
+  .kv-row .k{font-weight:500;flex:0 0 38%;}
+  .kv-row .del{cursor:pointer;color:var(--red);padding:4px 8px;border-radius:4px;font-size:14px;}
+  .kv-row .del:hover{background:rgba(244,135,113,.15);}
+  .hint{color:var(--text-dim);font-size:11px;margin:4px 0 12px;line-height:1.5;}
+  .tpl-chips{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;}
+  .tpl-chips .chip{cursor:pointer;}
+
+  /* 参数编辑器：左 JSON（权威）+ 右 KV 速编 双栏 */
+  .modal.wide{width:780px;}
+  .param-split{display:flex;gap:14px;align-items:stretch;margin-top:6px;}
+  .param-json{flex:1.5;display:flex;flex-direction:column;min-width:0;}
+  .param-kv{flex:1;display:flex;flex-direction:column;min-width:0;}
+  .pj-head{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-dim);
+    margin-bottom:6px;font-weight:600;letter-spacing:.3px;}
+  .pj-head .tag{font-size:10px;font-weight:500;color:var(--text-faint);}
+  .pj-status{font-size:10px;font-weight:600;padding:1px 8px;border-radius:9px;white-space:nowrap;}
+  .pj-status.ok{color:var(--green);background:rgba(137,209,133,.12);}
+  .pj-status.err{color:var(--red);background:rgba(244,135,113,.14);}
+  textarea.pj-text{width:100%;flex:1;min-height:268px;background:#1b1b1b;border:1px solid #333;border-radius:5px;
+    color:#d4d4d4;font-family:Consolas,"SFMono-Regular",monospace;font-size:12px;line-height:1.65;padding:10px 12px;
+    resize:none;outline:none;white-space:pre;tab-size:2;transition:border-color .15s,box-shadow .15s;}
+  textarea.pj-text:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
+  textarea.pj-text.err{border-color:var(--red);box-shadow:0 0 0 1px rgba(244,135,113,.4);}
+  .param-kv #kvList{flex:1;overflow:auto;max-height:268px;padding-right:2px;}
+  .param-kv .kvfoot{margin-top:8px;}
+  .seg{display:flex;gap:0;border:1px solid #333;border-radius:4px;overflow:hidden;margin-bottom:10px;}
+  .seg button{flex:1;background:var(--input);border:none;color:var(--text-dim);padding:6px;font-size:12px;cursor:pointer;border-right:1px solid #333;}
+  .seg button:last-child{border-right:none;}
+  .seg button.on{background:var(--accent);color:#fff;}
+  .summary-box{background:var(--input);border:1px solid #333;border-radius:4px;padding:8px 10px;font-size:11px;color:var(--text-dim);margin-bottom:10px;line-height:1.6;}
+  .summary-box b{color:#fff;}
+  .tpl-saved{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px;align-items:center;}
+  .tpl-saved .hint{margin:0;}
+  .tpl-saved .chip .del{margin-left:5px;color:var(--red);cursor:pointer;font-size:10px;}
+  .tpl-saved .chip .del:hover{opacity:1;}
+  textarea.prev{width:100%;min-height:220px;background:var(--input);border:1px solid #333;border-radius:4px;
+    color:var(--text);font-family:Consolas,"SFMono-Regular",monospace;font-size:11px;line-height:1.6;padding:10px;resize:vertical;outline:none;}
+  textarea.prev:focus{border-color:var(--accent);}
+
+  /* 本地缓存提示 + 同步树 + 配置框 */
+  .spinner{width:14px;height:14px;border:2px solid #444;border-top-color:var(--accent);border-radius:50%;
+    display:inline-block;animation:spin .8s linear infinite;vertical-align:middle;margin-right:6px;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+  .lb-note{padding:4px 12px 8px;font-size:10px;color:var(--text-faint);line-height:1.4;}
+  .lb-note .sw{color:var(--blue);}
+  .sync-status{font-size:12px;color:var(--text-dim);padding:6px 0 10px;display:flex;align-items:center;}
+  .sync-tree{margin:4px 0 12px;max-height:300px;overflow:auto;border:1px solid #333;border-radius:4px;padding:4px 0;background:#1b1b1b;}
+  .sync-tree .stree-folder{font-size:11px;color:var(--text-dim);padding:5px 10px 2px;font-weight:600;}
+  .sync-tree .stree-job{display:flex;align-items:center;gap:8px;padding:3px 10px 3px 22px;font-size:12px;cursor:pointer;}
+  .sync-tree .stree-job:hover{background:var(--hover);}
+  .sync-tree .stree-job input{accent-color:var(--accent);}
+  .sync-tree .stree-job .jb{margin-left:6px;font-size:10px;color:var(--text-faint);}
+  textarea.cfg{width:100%;min-height:320px;background:var(--input);border:1px solid #333;border-radius:4px;
+    color:var(--text);font-family:Consolas,monospace;font-size:11px;line-height:1.5;padding:10px;resize:vertical;outline:none;white-space:pre;}
+
+  /* toast */
+  .toast{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);background:#333;border:1px solid var(--border);
+    padding:8px 16px;border-radius:6px;font-size:12px;opacity:0;transition:.3s;z-index:60;pointer-events:none;}
+  .toast.show{opacity:1;}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ===== 顶栏 ===== -->
+  <div class="titlebar">
+    <div class="logo">J</div>
+    <h1>Jenkins Pipeline Batch Runner</h1>
+    <span class="crumb">›  批量触发 & 实时状态</span>
+    <div class="conn">
+      <span class="dot" id="connDot"></span>
+      <span id="connText">已连接 · jenkins.local:8080</span>
+      <button class="btn ghost icon" id="btnSettings" title="查看 .jenkins-batch-trigger 配置">⚙</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <!-- ===== 左栏：视图 / 分组 / 命名分组 / 过滤模板 ===== -->
+    <div class="leftbar">
+      <!-- 视图 -->
+      <div class="lb-section">
+        <div class="lb-head"><span>视图</span></div>
+        <div class="lb-list">
+          <div class="lb-item active" data-view="all"><span class="ico">▤</span>全部 Pipeline<span class="cnt" id="viewAllCnt">0</span></div>
+          <div class="lb-item" data-view="selected"><span class="ico">☑</span>当前选中<span class="cnt" id="viewSelCnt">0</span></div>
+          <div class="lb-item" data-view="running"><span class="ico">●</span>运行中<span class="cnt" id="viewRunCnt">0</span></div>
+        </div>
+      </div>
+
+      <!-- ★ 分组（来自 .jenkins-batch-trigger；只有「＋添加分组」才从 Jenkins 拉取全量 job） -->
+      <div class="lb-section">
+        <div class="lb-head"><span>分组</span>
+          <div class="lb-actions"><button class="btn ghost sm" id="btnAddGroup" title="从 Jenkins 获取全部 job 树并添加为新分组">＋添加分组</button></div>
+        </div>
+        <!-- 全选所有 pipeline（替代原 All 分组） -->
+        <div class="lb-selectall" id="selectAllRow" title="选中/取消选中所有已同步的 pipeline">
+          <input type="checkbox" id="selectAllJobs" />
+          <span class="lbl">全选所有 pipeline</span>
+          <span class="cnt" id="selectAllCnt">0/0</span>
+        </div>
+        <div class="lb-list" id="folderList"></div>
+        <div class="lb-note" id="localNote"></div>
+      </div>
+
+      <!-- 命名分组 -->
+      <div class="lb-section">
+        <div class="lb-head"><span>命名分组</span>
+          <div class="lb-actions"><button class="btn ghost sm" id="btnSaveGroup" title="把当前选中保存为命名分组（写入 .jenkins-batch-trigger）">＋存为分组</button></div>
+        </div>
+        <div class="lb-list" id="groupList">
+          <div class="lb-empty">勾选 pipeline 后点「＋存为分组」<br>（同一 job 可加入多个命名分组）</div>
+        </div>
+      </div>
+      <!-- 过滤模板 -->
+      <div class="lb-section">
+        <div class="lb-head"><span>过滤模板</span>
+          <div class="lb-actions"><button class="btn ghost sm" id="btnSaveFilter" title="把当前筛选条件存为模板">＋存为模板</button></div>
+        </div>
+        <div class="lb-list" id="filterList">
+          <div class="lb-empty">设置搜索/状态筛选后保存</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== 中区：顶部操作栏 + 工具栏 + 表格 + 底部摘要 ===== -->
+    <div class="center">
+      <!-- 顶部操作栏：选择摘要 + 参数 + 批量触发（已上移）+ 刷新 -->
+      <div class="toolbar">
+        <div class="search">
+          <span style="color:var(--text-dim)">🔍</span>
+          <input id="searchInput" placeholder="按名称/folder 筛选 pipeline…" />
+        </div>
+        <div class="chips" id="statusChips">
+          <span class="chip on" data-st="all">全部</span>
+          <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span>Running</span>
+          <span class="chip" data-st="success"><span class="sw" style="background:var(--green)"></span>Success</span>
+          <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span>Failed</span>
+          <span class="chip" data-st="unstable"><span class="sw" style="background:var(--yellow)"></span>Unstable</span>
+          <span class="chip" data-st="aborted"><span class="sw" style="background:var(--gray)"></span>Aborted</span>
+        </div>
+        <div class="divider"></div>
+        <div class="autoref">
+          <label><input type="checkbox" id="autoChk" /> 自动刷新</label>
+          <select id="autoInt">
+            <option value="5">5s</option>
+            <option value="10" selected>10s</option>
+            <option value="30">30s</option>
+            <option value="60">1m</option>
+          </select>
+        </div>
+        <div class="spacer"></div>
+        <button class="btn" id="btnParams" title="点击配置批量触发参数">⚙ 参数 · <span id="paramTplLabel">未应用模板</span> <span id="paramCount" class="pcount">0</span></button>
+        <button class="btn primary" id="btnTrigger">▶ 批量触发</button>
+        <button class="btn danger" id="btnAbort" title="中止选中的运行中 pipeline">⏹ 批量中止</button>
+        <button class="btn primary icon" id="btnRefresh" title="立即刷新状态">⟳ 刷新</button>
+      </div>
+
+      <!-- 表格 -->
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th class="col-check"><input type="checkbox" id="checkAll" /></th>
+              <th>Pipeline</th>
+              <th>状态</th>
+              <th title="该 job 当前在 Jenkins 构建队列中等待的数量">队列</th>
+              <th>上次构建</th>
+              <th>耗时</th>
+              <th>最近运行</th>
+              <th title="点击在浏览器打开该次构建的真实页面">当前构建</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty-state" id="emptyState" style="display:none">没有匹配的 pipeline</div>
+      </div>
+
+      <!-- 底部操作栏（仅保留摘要 + 日志 + 清除） -->
+      <div class="actionbar">
+        <span class="sel">已选 <b id="selCount">0</b> / <span id="totalCount">0</span></span>
+        <span class="sel logtoggle" id="logToggle">▸ 活动日志</span>
+        <div class="spacer"></div>
+        <button class="btn" id="btnClearSel">清除选择</button>
+      </div>
+      <div class="logpanel" id="logPanel"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 参数编辑 Modal（左 JSON 权威 + 右 KV 速编） ===== -->
+<div class="overlay" id="paramOverlay">
+  <div class="modal wide">
+    <h3>⚙ 批量触发参数</h3>
+    <div class="body">
+      <div class="hint">左侧 <b>JSON</b> 为<strong>最终下发参数</strong>（可直接编辑，触发以此为准）；右侧键值对速编用于辅助构建，改动实时同步到左侧。模板可一键填充。</div>
+      <div class="tpl-chips">
+        <span style="color:var(--text-dim);font-size:11px;align-self:center;">内置模板：</span>
+        <span class="chip" data-tpl='[["BRANCH","main"],["ENVIRONMENT","staging"]]'>部署</span>
+        <span class="chip" data-tpl='[["VERSION","1.0.0"],["FORCE","true"]]'>发版</span>
+        <span class="chip" data-tpl='[["RUN_TESTS","false"]]'>跳过测试</span>
+        <button class="btn sm" id="btnSaveParamTpl" style="margin-left:auto">＋ 存为模板</button>
+      </div>
+      <div class="tpl-saved" id="paramTplList"></div>
+      <div class="param-split">
+        <!-- 左：JSON 权威编辑器 -->
+        <div class="param-json">
+          <div class="pj-head">
+            <span>最终参数 (JSON) <span class="tag">· 触发以此为准</span></span>
+            <span class="pj-status ok" id="pjStatus">✓ 有效</span>
+          </div>
+          <textarea class="pj-text" id="paramJson" spellcheck="false" placeholder='{ "BRANCH": "main", "ENVIRONMENT": "staging" }'></textarea>
+        </div>
+        <!-- 右：KV 键值对速编 -->
+        <div class="param-kv">
+          <div class="pj-head"><span>键值对速编</span><span class="tag">· 辅助</span></div>
+          <div id="kvList"></div>
+          <div class="kvfoot"><button class="btn sm" id="btnAddKv">+ 添加参数</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnParamCancel">取消</button>
+      <button class="btn primary" id="btnParamSave">保存参数</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 保存分组 Modal ===== -->
+<div class="overlay" id="groupOverlay">
+  <div class="modal">
+    <h3>＋ 保存为命名分组</h3>
+    <div class="body">
+      <div class="summary-box" id="groupSummary"></div>
+      <div class="field">
+        <label>分组名称</label>
+        <input type="text" id="groupName" placeholder="例如：支付线 / 每日发版" />
+      </div>
+      <div class="hint">分组会记住当前勾选的 pipeline 集合，点击左栏分组名可一键召回勾选。<strong>同一 pipeline 可同时属于多个命名分组</strong>，webview 展示时自动去重，不会重复出现。</div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnGroupCancel">取消</button>
+      <button class="btn primary" id="btnGroupSave">保存分组</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 保存模板 Modal ===== -->
+<div class="overlay" id="filterOverlay">
+  <div class="modal">
+    <h3>＋ 保存为过滤模板</h3>
+    <div class="body">
+      <div class="summary-box" id="filterSummary"></div>
+      <div class="field">
+        <label>模板名称</label>
+        <input type="text" id="filterName" placeholder="例如：failed 重跑 / 运行中监控" />
+      </div>
+      <div class="hint">模板记住当前的搜索词 + 状态筛选，点击左栏模板名可一键应用。</div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnFilterCancel">取消</button>
+      <button class="btn primary" id="btnFilterSave">保存模板</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 保存参数模板 Modal ===== -->
+<div class="overlay" id="paramTplOverlay">
+  <div class="modal">
+    <h3>＋ 保存参数模板</h3>
+    <div class="body">
+      <div class="summary-box" id="paramTplSummary"></div>
+      <div class="field">
+        <label>模板名称</label>
+        <input type="text" id="paramTplName" placeholder="例如：生产部署 / 灰度发布" />
+      </div>
+      <div class="hint">保存当前参数键值对为模板，后续在「参数」弹窗中可一键套用或删除。</div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnParamTplCancel">取消</button>
+      <button class="btn primary" id="btnParamTplSave">保存模板</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 触发参数预览 / 确认 Modal ===== -->
+<div class="overlay" id="triggerOverlay">
+  <div class="modal">
+    <h3>▶ 确认批量触发</h3>
+    <div class="body">
+      <div class="hint">以下为本次触发将下发的<strong>真实参数</strong>与目标 pipeline，请确认无误后点击「确认触发」。</div>
+      <textarea class="prev" id="triggerPreviewText" readonly></textarea>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnTriggerCancel">取消</button>
+      <button class="btn primary" id="btnTriggerConfirm">确认触发</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== 添加分组 · 从 Jenkins 同步 job（树状） ===== -->
+<div class="overlay" id="syncOverlay">
+  <div class="modal">
+    <h3>＋ 添加分组 · 从 Jenkins 同步 job</h3>
+    <div class="body">
+      <div class="sync-status" id="syncStatus"><span class="spinner"></span>正在从 jenkins.local:8080 获取全部 job…</div>
+      <div id="syncBody" style="display:none">
+        <div class="hint">勾选要纳入本项目的 job，保存后写入 <b>.jenkins-batch-trigger</b>；之后筛选 / 触发均基于本地文件，<strong>无需再查 Jenkins</strong>。</div>
+        <div class="search" style="margin-bottom:8px">
+          <span style="color:var(--text-dim)">🔍</span>
+          <input id="syncSearch" placeholder="在 Jenkins job 中筛选…" />
+        </div>
+        <div class="sync-tree" id="syncTree"></div>
+        <div class="field">
+          <label>分组名称</label>
+          <input type="text" id="syncGroupName" placeholder="例如：支付线 / 每日发版 / 全量回归" />
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnSyncCancel">取消</button>
+      <button class="btn primary" id="btnSyncSave">保存分组</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== .jenkins-batch-trigger 配置查看 ===== -->
+<div class="overlay" id="configOverlay">
+  <div class="modal">
+    <h3>⚙ .jenkins-batch-trigger</h3>
+    <div class="body">
+      <div class="hint">本插件所有筛选 / 触发均基于当前目录下的此 JSON 文件，<strong>不会</strong>每次都查询 Jenkins 全部 job。仅在「＋添加分组」时才拉取。</div>
+      <textarea class="cfg" id="configJson" readonly></textarea>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnConfigClose">关闭</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============ 数据层 ============
+ * LOCAL          = 当前目录 .jenkins-batch-trigger 文件内容（唯一数据源）
+ * JENKINS_ALL_JOBS = 模拟「jenkins 返回的全部 job」，仅在「＋添加分组」时下拉取
+ */
+const JENKINS_ALL_JOBS = [
+  {id:1, name:"order-service/deploy",     folder:"order-service", status:"success",  build:"#142", dur:"2m 13s", time:"3 分钟前", queue:0},
+  {id:2, name:"order-service/unit-test",  folder:"order-service", status:"running",  build:"#88",  dur:"—",      time:"进行中",   queue:2},
+  {id:3, name:"payment-gateway/build",    folder:"payment",       status:"failed",   build:"#301", dur:"1m 02s", time:"12 分钟前", queue:0},
+  {id:4, name:"payment-gateway/e2e",      folder:"payment",       status:"unstable", build:"#77",  dur:"5m 40s", time:"20 分钟前", queue:1},
+  {id:5, name:"user-center/migrate",      folder:"user-center",   status:"success",  build:"#55",  dur:"0m 38s", time:"1 小时前", queue:0},
+  {id:6, name:"user-center/deploy",       folder:"user-center",   status:"aborted",  build:"#29",  dur:"0m 10s", time:"2 小时前", queue:3},
+  {id:7, name:"gateway/rollout",          folder:"infra",         status:"success",  build:"#210", dur:"3m 01s", time:"4 小时前", queue:0},
+  {id:8, name:"infra/terraform-apply",    folder:"infra",         status:"running",  build:"#64",  dur:"—",      time:"进行中",   queue:0},
+  {id:9, name:"report/nightly",           folder:"report",        status:"failed",   build:"#512", dur:"8m 22s", time:"昨天",     queue:0},
+  {id:10,name:"mobile/beta-build",         folder:"mobile",        status:"success",  build:"#33",  dur:"6m 15s", time:"昨天",     queue:0},
+  {id:11,name:"search/indexer",           folder:"search",        status:"success",  build:"#91",  dur:"1m 20s", time:"昨天",     queue:1},
+  {id:12,name:"search/query-api",         folder:"search",        status:"running",  build:"#40",  dur:"—",      time:"进行中",   queue:0},
+  {id:13,name:"notify/email-svc",         folder:"notify",        status:"unstable", build:"#18",  dur:"0m 55s", time:"2 天前",   queue:0},
+  {id:14,name:"notify/push-svc",          folder:"notify",        status:"success",  build:"#22",  dur:"0m 40s", time:"2 天前",   queue:0},
+  {id:15,name:"order-service/canary",     folder:"order-service", status:"aborted",  build:"#12",  dur:"0m 05s", time:"3 天前",   queue:0},
+  {id:16,name:"payment-gateway/migration",folder:"payment",       status:"success",  build:"#58",  dur:"2m 02s", time:"3 天前",   queue:2},
+];
+const JENKINS_BASE_URL="https://jenkins.local";   // 落地：从配置文件读取 Jenkins 根地址
+/* 由 job 名 + 当前构建号拼出真实构建页面地址 */
+function jobBuildUrl(d){
+  const path=d.name.split("/").map(encodeURIComponent).join("/job/");
+  const num=d.build.replace("#","");
+  return `${JENKINS_BASE_URL}/job/${path}/${num}/`;
+}
+const STATUS_LABEL={running:"Running",success:"Success",failed:"Failed",unstable:"Unstable",aborted:"Aborted"};
+const BADGE={running:"b-running",success:"b-success",failed:"b-failed",unstable:"b-unstable",aborted:"b-aborted"};
+
+/* ---- .jenkins-batch-trigger 读写（落地：fs.readFileSync / writeFileSync） ---- */
+function loadLocal(){
+  try{
+    const raw=localStorage.getItem(".jenkins-batch-trigger");
+    if(raw){
+      const o=JSON.parse(raw);
+      o.groups=(o.groups||[]).map(g=>({id:g.id,name:g.name,ids:new Set(g.ids||[])}));
+      o.filters=o.filters||[]; o.paramTemplates=o.paramTemplates||[]; o.jobs=o.jobs||[];
+      return o;
+    }
+  }catch(e){ console.warn("读取 .jenkins-batch-trigger 失败，使用默认配置",e); }
+  // 默认种子：模拟「已存在的 .jenkins-batch-trigger」（仅缓存了部分 job）
+  const seedIds=[1,2,3,4,5,6];
+  return { jobs: JENKINS_ALL_JOBS.filter(j=>seedIds.includes(j.id)).map(j=>({...j})),
+           groups:[], filters:[], paramTemplates:[] };
+}
+function serializeLocal(){
+  return { jobs:LOCAL.jobs, filters:LOCAL.filters, paramTemplates:LOCAL.paramTemplates,
+           groups:LOCAL.groups.map(g=>({id:g.id,name:g.name,ids:[...g.ids]})) };
+}
+function saveLocal(){
+  try{ localStorage.setItem(".jenkins-batch-trigger", JSON.stringify(serializeLocal(),null,2)); }
+  catch(e){ console.warn("写入 .jenkins-batch-trigger 失败（演示环境无 fs）",e); }
+  logMsg("已写入 .jenkins-batch-trigger（"+LOCAL.jobs.length+" jobs / "+LOCAL.groups.length+" 分组）","ok");
+}
+
+/* ============ 状态 ============ */
+let LOCAL = loadLocal();
+let params=[];
+let filterStatus="all";
+let currentView="all";
+let folderFilter=null;           // 左侧分组选中后按 folder 筛选中区；null = 不过滤 folder（由「视图」控制全部显示）
+const collapsedFolders=new Set(); // 折叠状态
+const selected=new Set();
+let groups = LOCAL.groups;        // 别名（同一引用，saveLocal 时序列化）
+let filters = LOCAL.filters;
+let paramTemplates = LOCAL.paramTemplates;
+let activeParamTpl=null;          // 当前生效的参数模板名称（null = 手动自定义 / 未应用）
+let activeGroup=null, activeFilter=null;
+
+/* 参数按钮：显示当前生效的模板名 + 参数个数 */
+function renderParamBtn(){
+  document.getElementById("paramCount").textContent=params.length;
+  const lbl=document.getElementById("paramTplLabel");
+  if(activeParamTpl) lbl.textContent=activeParamTpl;
+  else lbl.textContent = params.length ? "自定义" : "未应用模板";
+}
+
+/* ============ 参数 JSON 编辑器（左栏，触发权威源） ============ */
+function paramsToObj(){const o={};params.forEach(p=>{if(p[0]!=="")o[p[0]]=p[1];});return o;}
+function objToParams(o){return Object.keys(o||{}).map(k=>[k,String(o[k])]);}
+function setPjStatus(ok,msg){
+  const s=document.getElementById("pjStatus"),ta=document.getElementById("paramJson");
+  if(!s) return;
+  if(ok){s.textContent="✓ 有效";s.className="pj-status ok";if(ta)ta.classList.remove("err");}
+  else{s.textContent="✕ "+(msg||"JSON 无效");s.className="pj-status err";if(ta)ta.classList.add("err");}
+}
+/* KV/模板变更 → 同步写入 JSON（不触碰 KV 行，避免光标跳） */
+function syncJsonFromParams(){
+  const ta=document.getElementById("paramJson"); if(!ta) return;
+  ta.value=JSON.stringify(paramsToObj(),null,2);
+  setPjStatus(true);
+}
+/* 用户直接编辑 JSON → 解析回 params + 重渲染 KV（不再回写 JSON，保留光标） */
+function syncParamsFromJson(){
+  const ta=document.getElementById("paramJson"); if(!ta) return;
+  const txt=ta.value.trim();
+  if(txt===""){params=[];setPjStatus(true);renderKv();renderParamBtn();return;}
+  let obj; try{obj=JSON.parse(txt);}catch(e){setPjStatus(false,e.message);return;}
+  if(!obj||typeof obj!=="object"||Array.isArray(obj)){setPjStatus(false,"应为 JSON 对象 { … }");return;}
+  params=objToParams(obj); setPjStatus(true); renderKv(); renderParamBtn();
+}
+/* KV 侧任何变更后统一调用：同步 JSON + 刷新按钮 */
+function onParamsChanged(){syncJsonFromParams();renderParamBtn();}
+/* 触发时取权威参数：解析 JSON，无效返回 null */
+function getTriggerParams(){
+  const ta=document.getElementById("paramJson");
+  if(!ta) return params.slice();
+  const txt=ta.value.trim();
+  if(txt==="") return [];
+  try{const o=JSON.parse(txt); if(o&&typeof o==="object"&&!Array.isArray(o)) return Object.keys(o).map(k=>[k,String(o[k])]);}
+  catch(e){return null;}
+  return params.slice();
+}
+
+/* ============ 渲染主表 ============ */
+function visibleData(){
+  let list=LOCAL.jobs.slice();
+  // 视图
+  if(currentView==="selected") list=list.filter(d=>selected.has(d.id));
+  else if(currentView==="running") list=list.filter(d=>d.status==="running");
+  // 左侧分组筛选：具体 folder 分组只显示该组「已选中」的项目
+  if(folderFilter) list=list.filter(d=>d.folder===folderFilter && selected.has(d.id));
+  // 搜索 + 状态筛选
+  const q=document.getElementById("searchInput").value.toLowerCase();
+  list=list.filter(d=>d.name.toLowerCase().includes(q) && (filterStatus==="all"||d.status===filterStatus));
+  // 默认去重：同一 pipeline（id）只显示一次，避免同一 job 被多个分组引用时重复出现
+  list=list.filter((d,i,arr)=>arr.findIndex(x=>x.id===d.id)===i);
+  return list;
+}
+function render(){
+  const list=visibleData();
+  const tbody=document.getElementById("tbody");
+  tbody.innerHTML="";
+  const es=document.getElementById("emptyState");
+  if(list.length){ es.style.display="none"; }
+  else { es.style.display="block"; es.textContent = folderFilter ? "该分组暂无选中项 — 请在左侧勾选 pipeline" : (LOCAL.jobs.length===0 ? "尚未同步 job — 点「＋添加分组」从 Jenkins 获取" : "没有匹配的 pipeline"); }
+  list.forEach(d=>{
+    const checked=selected.has(d.id)?"checked":"";
+    const tr=document.createElement("tr");
+    if(selected.has(d.id)) tr.className="sel";
+    tr.innerHTML=`
+      <td class="col-check"><input type="checkbox" class="rowchk" data-id="${d.id}" ${checked}></td>
+      <td><div class="name">${d.name}</div><div class="sub"><span class="folder-tag">${d.folder}</span></div></td>
+      <td><span class="badge ${BADGE[d.status]}"><span class="sw"></span>${STATUS_LABEL[d.status]}</span></td>
+      <td>${d.queue>0?`<span class="qbadge" title="${d.queue} 个构建在队列中等待">${d.queue} 排队</span>`:'<span style="color:var(--text-faint)">—</span>'}</td>
+      <td>${d.build}</td>
+      <td>${d.dur}</td>
+      <td>${d.time}</td>
+      <td><span class="link build-link" data-url="${jobBuildUrl(d)}" title="${jobBuildUrl(d)}">${d.build} ↗</span></td>
+      <td><span class="link" data-run="${d.id}">触发</span> · <span class="link" data-log="${d.id}">日志</span>${d.status==="running"?' · <span class="link warn" data-abort="${d.id}">中止</span>':''}</td>`;
+    tbody.appendChild(tr);
+  });
+  // 计数
+  document.getElementById("totalCount").textContent=list.length;
+  document.getElementById("selCount").textContent=selected.size;
+  document.getElementById("viewAllCnt").textContent=LOCAL.jobs.length;
+  document.getElementById("viewSelCnt").textContent=selected.size;
+  document.getElementById("viewRunCnt").textContent=LOCAL.jobs.filter(d=>d.status==="running").length;
+  renderParamBtn();
+  // 批量中止按钮：有选中的运行中任务时才可点
+  const runSel=LOCAL.jobs.filter(d=>selected.has(d.id) && d.status==="running").length;
+  const ab=document.getElementById("btnAbort");
+  ab.disabled = runSel===0;
+  ab.title = runSel>0 ? ("中止 "+runSel+" 个运行中的 pipeline") : "选中的 pipeline 中无运行中的任务";
+  // 全选状态（仅当前可见）
+  document.getElementById("checkAll").checked=list.length>0 && list.every(d=>selected.has(d.id));
+  // 侧栏「全选所有 pipeline」三态
+  const sa=document.getElementById("selectAllJobs");
+  if(sa){
+    const total=LOCAL.jobs.length, selN=LOCAL.jobs.filter(d=>selected.has(d.id)).length;
+    sa.checked = total>0 && selN===total;
+    sa.indeterminate = selN>0 && selN<total;
+    document.getElementById("selectAllCnt").textContent=selN+"/"+total;
+  }
+  renderLeftBar();
+}
+
+/* ============ 左栏渲染（含分组 / 命名分组 / 模板） ============ */
+function renderLeftBar(){
+  /* ---- 分组：按 folder 数据分组（同一 job 只属一个 folder；可出现在多个命名分组） ---- */
+  const folders={};
+  LOCAL.jobs.forEach(d=>{ (folders[d.folder]=folders[d.folder]||[]).push(d); });
+  const fl=document.getElementById("folderList");
+  fl.innerHTML="";
+  Object.keys(folders).forEach(f=>{
+    const items=folders[f];
+    const selInFolder=items.filter(d=>selected.has(d.id)).length;
+    const isCollapsed=collapsedFolders.has(f);
+    const isActive=folderFilter===f;
+    const g=document.createElement("div");
+    g.className="lb-group"+(isCollapsed?" collapsed":"");
+    g.innerHTML=`
+      <div class="ghead${isActive?" active":""}" data-folder="${f}">
+        <span class="chev">▾</span>
+        <span class="gname">${f}</span>
+        <span class="gcount">${items.length}</span>
+        <span class="selall" data-selall="${f}" title="全选该组">全选 ${selInFolder}/${items.length}</span>
+      </div>
+      <div class="gbody">
+        ${items.map(d=>`
+          <div class="grow${selected.has(d.id)?" on":""}" data-row="${d.id}">
+            <span class="rchk"></span><span class="gname">${d.name.split("/").pop()}</span>
+          </div>`).join("")}
+      </div>`;
+    // 组头：点击折叠/展开；点组名（非全选）切换 folder 筛选
+    g.querySelector(".ghead").addEventListener("click",e=>{
+      if(e.target.closest(".selall")) return;
+      if(e.target.closest(".chev")){ collapsedFolders.has(f)?collapsedFolders.delete(f):collapsedFolders.add(f); renderLeftBar(); return; }
+      folderFilter=folderFilter===f?null:f; activeFilter=null; render();
+    });
+    // 全选胶囊
+    g.querySelector(".selall").addEventListener("click",e=>{
+      e.stopPropagation();
+      const allSel=items.every(d=>selected.has(d.id));
+      items.forEach(d=>{ allSel?selected.delete(d.id):selected.add(d.id); });
+      render(); toast(allSel?("已取消全选 "+f):("已全选 "+f));
+    });
+    // 组内行：单选
+    g.querySelectorAll(".grow").forEach(row=>{
+      row.addEventListener("click",()=>{
+        const id=+row.dataset.row;
+        selected.has(id)?selected.delete(id):selected.add(id);
+        if(folderFilter && !items.some(d=>selected.has(d.id))) folderFilter=null;
+        render();
+      });
+    });
+    fl.appendChild(g);
+  });
+
+  /* ---- 命名分组 ---- */
+  const gl=document.getElementById("groupList");
+  gl.innerHTML=groups.length?"":'<div class="lb-empty">勾选 pipeline 后点「＋存为分组」</div>';
+  groups.forEach(g=>{
+    const el=document.createElement("div");
+    el.className="lb-item"+(activeGroup===g.id?" active":"");
+    el.innerHTML=`<span class="ico">📁</span>${g.name}<span class="cnt">${g.ids.size}</span><span class="del" data-gdel="${g.id}">✕</span>`;
+    el.onclick=e=>{ if(e.target.dataset.gdel){e.stopPropagation();LOCAL.groups=LOCAL.groups.filter(x=>x.id!==g.id);groups=LOCAL.groups;activeGroup=null;render();logMsg("删除分组 "+g.name);return;} activeGroup=g.id; selected.clear(); g.ids.forEach(id=>selected.add(id)); currentView="all"; folderFilter=null; render(); toast("已应用分组："+g.name); };
+    gl.appendChild(el);
+  });
+  /* ---- 过滤模板 ---- */
+  const fil=document.getElementById("filterList");
+  fil.innerHTML=filters.length?"":'<div class="lb-empty">设置搜索/状态筛选后保存</div>';
+  filters.forEach(f=>{
+    const el=document.createElement("div");
+    el.className="lb-item"+(activeFilter===f.id?" active":"");
+    el.innerHTML=`<span class="ico">🔖</span>${f.name}<span class="del" data-fdel="${f.id}">✕</span>`;
+    el.onclick=e=>{ if(e.target.dataset.fdel){e.stopPropagation();LOCAL.filters=LOCAL.filters.filter(x=>x.id!==f.id);filters=LOCAL.filters;activeFilter=null;render();logMsg("删除模板 "+f.name);return;} activeFilter=f.id; document.getElementById("searchInput").value=f.search; filterStatus=f.status; document.querySelectorAll("#statusChips .chip").forEach(c=>c.classList.toggle("on",c.dataset.st===f.status)); folderFilter=null; render(); toast("已应用模板："+f.name); };
+    fil.appendChild(el);
+  });
+  /* ---- 本地缓存提示：所有数据来自 .jenkins-batch-trigger ---- */
+  document.getElementById("localNote").innerHTML='▦ 来自 <span class="sw">.jenkins-batch-trigger</span> · '+LOCAL.jobs.length+' jobs';
+}
+
+/* ============ 工具栏事件 ============ */
+document.getElementById("searchInput").addEventListener("input",()=>{activeFilter=null;folderFilter=null;render();});
+document.getElementById("statusChips").addEventListener("click",e=>{
+  const c=e.target.closest(".chip"); if(!c) return;
+  document.querySelectorAll("#statusChips .chip").forEach(x=>x.classList.remove("on"));
+  c.classList.add("on"); filterStatus=c.dataset.st; activeFilter=null; render();
+});
+document.querySelectorAll('.lb-item[data-view]').forEach(el=>{
+  el.onclick=()=>{ document.querySelectorAll('.lb-item[data-view]').forEach(x=>x.classList.remove("active")); el.classList.add("active"); currentView=el.dataset.view; render(); };
+});
+
+/* 选择 */
+document.getElementById("tbody").addEventListener("change",e=>{
+  if(e.target.classList.contains("rowchk")){
+    const id=+e.target.dataset.id;
+    e.target.checked?selected.add(id):selected.delete(id); render();
+  }
+});
+document.getElementById("checkAll").addEventListener("change",e=>{
+  visibleData().forEach(d=>{ e.target.checked?selected.add(d.id):selected.delete(d.id); }); render();
+});
+/* 侧栏「全选所有 pipeline」：选中/取消所有已同步 job（替代原 All 分组） */
+document.getElementById("selectAllRow").addEventListener("click",e=>{
+  if(e.target.id==="selectAllJobs") return; // checkbox 自带 change 处理，避免重复触发
+  const sa=document.getElementById("selectAllJobs");
+  sa.checked=!sa.checked; // 点击行/标签时同步翻转复选框
+  const target=sa.checked;
+  LOCAL.jobs.forEach(d=>{ target?selected.add(d.id):selected.delete(d.id); });
+  render(); toast(target?("已全选所有 "+LOCAL.jobs.length+" 个 pipeline"):"已取消全选");
+});
+document.getElementById("selectAllJobs").addEventListener("change",e=>{
+  LOCAL.jobs.forEach(d=>{ e.target.checked?selected.add(d.id):selected.delete(d.id); });
+  render(); toast(e.target.checked?("已全选所有 "+LOCAL.jobs.length+" 个 pipeline"):"已取消全选");
+});
+document.getElementById("tbody").addEventListener("click",e=>{
+  if(e.target.dataset.run) triggerOne(+e.target.dataset.run);
+  if(e.target.dataset.abort) abortOne(+e.target.dataset.abort);
+  if(e.target.dataset.log) logMsg("打开 #"+e.target.dataset.log+" 的 console（落地接 /job/.../console）","info");
+  if(e.target.dataset.url){
+    const u=e.target.dataset.url;
+    logMsg("在浏览器打开构建页面："+u,"info");
+    try{ window.open(u,"_blank"); }catch(err){ toast("无法打开链接："+u); }
+  }
+});
+document.getElementById("btnClearSel").onclick=()=>{selected.clear();render();toast("已清除选择");};
+
+/* ============ 参数编辑器 ============ */
+function renderKv(){
+  const box=document.getElementById("kvList");
+  box.innerHTML=params.length?"":'<div class="hint">暂无参数，点击「+ 添加参数」或选择上方模板。</div>';
+  params.forEach((p,i)=>{
+    const row=document.createElement("div"); row.className="kv-row";
+    row.innerHTML=`<input class="k" value="${p[0]}" placeholder="KEY"><input value="${p[1]}" placeholder="VALUE"><span class="del">✕</span>`;
+    row.querySelector(".k").oninput=e=>{params[i][0]=e.target.value;activeParamTpl=null;onParamsChanged();};
+    row.querySelectorAll("input")[1].oninput=e=>{params[i][1]=e.target.value;activeParamTpl=null;onParamsChanged();};
+    row.querySelector(".del").onclick=()=>{params.splice(i,1);activeParamTpl=null;renderKv();onParamsChanged();};
+    box.appendChild(row);
+  });
+}
+document.getElementById("btnParams").onclick=()=>{renderKv();renderParamTpl();syncJsonFromParams();document.getElementById("paramOverlay").classList.add("show");};
+document.getElementById("btnParamCancel").onclick=()=>document.getElementById("paramOverlay").classList.remove("show");
+document.getElementById("btnAddKv").onclick=()=>{params.push(["",""]);activeParamTpl=null;renderKv();onParamsChanged();};
+document.querySelectorAll(".tpl-chips .chip").forEach(c=>c.onclick=()=>{
+  params=JSON.parse(c.dataset.tpl); activeParamTpl=c.textContent.trim(); renderKv(); onParamsChanged();
+});
+document.getElementById("paramJson").addEventListener("input",syncParamsFromJson);
+/* ---- 自定义参数模板：渲染 / 保存 / 套用 / 删除 ---- */
+function renderParamTpl(){
+  const box=document.getElementById("paramTplList");
+  if(!box) return;
+  box.innerHTML = paramTemplates.length
+    ? ""
+    : '<span class="hint" style="margin:0">暂无自定义模板，配置参数后点「＋ 存为模板」。</span>';
+  paramTemplates.forEach(t=>{
+    const c=document.createElement("span");
+    c.className="chip";
+    c.innerHTML = t.name + ' <span class="del" data-ptdel="'+t.id+'">✕</span>';
+    c.onclick=e=>{
+      if(e.target.dataset.ptdel){
+        e.stopPropagation();
+        LOCAL.paramTemplates=LOCAL.paramTemplates.filter(x=>x.id!==t.id); paramTemplates=LOCAL.paramTemplates;
+        renderParamTpl(); logMsg("删除参数模板 "+t.name); return;
+      }
+      params=t.params.map(p=>p.slice()); renderKv();
+      activeParamTpl=t.name; onParamsChanged(); toast("已套用参数模板："+t.name);
+    };
+    box.appendChild(c);
+  });
+}
+document.getElementById("btnSaveParamTpl").onclick=()=>{
+  if(params.length===0){toast("请先配置参数");return;}
+  document.getElementById("paramTplSummary").innerHTML=
+    "将保存 <b>"+params.length+"</b> 个参数：<br>"+params.map(p=>p[0]+"="+p[1]).join("，");
+  document.getElementById("paramTplName").value="";
+  document.getElementById("paramTplOverlay").classList.add("show");
+  setTimeout(()=>document.getElementById("paramTplName").focus(),50);
+};
+document.getElementById("btnParamTplCancel").onclick=()=>document.getElementById("paramTplOverlay").classList.remove("show");
+document.getElementById("btnParamTplSave").onclick=()=>{
+  const name=document.getElementById("paramTplName").value.trim();
+  if(!name){toast("请输入模板名称");return;}
+  paramTemplates.push({id:Date.now(),name,params:params.map(p=>p.slice())});
+  saveLocal();
+  document.getElementById("paramTplOverlay").classList.remove("show");
+  activeParamTpl=name; onParamsChanged();
+  renderParamTpl(); toast("已保存参数模板："+name); logMsg("新建参数模板 "+name,"ok");
+};
+document.getElementById("btnParamSave").onclick=()=>{
+  if(getTriggerParams()===null){toast("参数 JSON 无效，请检查左侧编辑器");return;}
+  document.getElementById("paramOverlay").classList.remove("show");
+  toast("已保存 "+params.length+" 个参数");renderParamBtn();
+};
+
+/* ============ 保存分组 ============ */
+document.getElementById("btnSaveGroup").onclick=()=>{
+  if(selected.size===0){toast("请先勾选 pipeline");return;}
+  const names=LOCAL.jobs.filter(d=>selected.has(d.id)).map(d=>d.name).slice(0,6).join("、")+(selected.size>6?"…":"");
+  document.getElementById("groupSummary").innerHTML="将保存 <b>"+selected.size+"</b> 个 pipeline（写入 .jenkins-batch-trigger）：<br>"+names;
+  document.getElementById("groupName").value=""; document.getElementById("groupOverlay").classList.add("show");
+  setTimeout(()=>document.getElementById("groupName").focus(),50);
+};
+document.getElementById("btnGroupCancel").onclick=()=>document.getElementById("groupOverlay").classList.remove("show");
+document.getElementById("btnGroupSave").onclick=()=>{
+  const name=document.getElementById("groupName").value.trim();
+  if(!name){toast("请输入分组名称");return;}
+  groups.push({id:Date.now(),name,ids:new Set(selected)});
+  saveLocal();
+  document.getElementById("groupOverlay").classList.remove("show");
+  render(); toast("已保存分组："+name); logMsg("新建分组 "+name+"（"+selected.size+" 个）","ok");
+};
+
+/* ============ 保存模板 ============ */
+document.getElementById("btnSaveFilter").onclick=()=>{
+  const q=document.getElementById("searchInput").value;
+  const st=filterStatus;
+  const parts=["搜索词：<b>"+(q||"（空）")+"</b>","状态：<b>"+STATUS_LABEL[st]+"</b>"];
+  document.getElementById("filterSummary").innerHTML="当前筛选条件：<br>"+parts.join("，");
+  document.getElementById("filterName").value=""; document.getElementById("filterOverlay").classList.add("show");
+  setTimeout(()=>document.getElementById("filterName").focus(),50);
+};
+document.getElementById("btnFilterCancel").onclick=()=>document.getElementById("filterOverlay").classList.remove("show");
+document.getElementById("btnFilterSave").onclick=()=>{
+  const name=document.getElementById("filterName").value.trim();
+  if(!name){toast("请输入模板名称");return;}
+  filters.push({id:Date.now(),name,search:document.getElementById("searchInput").value,status:filterStatus});
+  saveLocal();
+  document.getElementById("filterOverlay").classList.remove("show");
+  render(); toast("已保存模板："+name); logMsg("新建过滤模板 "+name,"ok");
+};
+
+/* ============ 触发（先预览真实参数，再确认） ============ */
+document.getElementById("btnTrigger").onclick=showTriggerPreview;
+function showTriggerPreview(){
+  if(selected.size===0){toast("请先勾选要触发的 pipeline");return;}
+  const tp=getTriggerParams();
+  if(tp===null){toast("参数 JSON 无效，请先在「参数」中修正");return;}
+  const names=LOCAL.jobs.filter(d=>selected.has(d.id)).map(d=>d.name);
+  const paramLines = tp.length ? tp.map(p=>`${p[0]}=${p[1]}`).join("\n") : "（无参数）";
+  document.getElementById("triggerPreviewText").value =
+`即将触发 ${selected.size} 个 pipeline
+================================
+
+[公共参数] (随请求下发的真实值，来自 JSON 编辑器)
+${paramLines}
+
+[目标 pipeline (${names.length})]
+${names.map(n=>"  • "+n).join("\n")}
+
+> 确认后将立即下发触发请求。`;
+  document.getElementById("triggerOverlay").classList.add("show");
+}
+document.getElementById("btnTriggerCancel").onclick=()=>document.getElementById("triggerOverlay").classList.remove("show");
+document.getElementById("btnTriggerConfirm").onclick=()=>{
+  document.getElementById("triggerOverlay").classList.remove("show");
+  doTrigger();
+};
+
+/* ============ 批量中止 ============ */
+document.getElementById("btnAbort").onclick=abortSelected;
+function abortSelected(){
+  if(selected.size===0){toast("请先勾选要中止的 pipeline");return;}
+  const targets=LOCAL.jobs.filter(d=>selected.has(d.id) && d.status==="running");
+  if(targets.length===0){toast("选中的 pipeline 中没有正在运行 (Running) 的任务");return;}
+  targets.forEach(d=>{ d.status="aborted"; d.time="已中止"; logMsg("中止 "+d.name,"warn"); });
+  render(); toast("已批量中止 "+targets.length+" 个运行中的 pipeline");
+}
+function abortOne(id){
+  const d=LOCAL.jobs.find(x=>x.id===id);
+  if(!d || d.status!=="running"){toast(d?(d.name+" 当前不是运行中，无法中止"):"pipeline 不存在");return;}
+  d.status="aborted"; d.time="已中止"; logMsg("中止 "+d.name,"warn"); render(); toast("已中止 "+d.name);
+}
+function doTrigger(){
+  const tp=getTriggerParams();
+  if(tp===null){toast("参数 JSON 无效，已取消触发");return;}
+  LOCAL.jobs.filter(d=>selected.has(d.id)).forEach(d=>{
+    d.status="running"; d.build="#"+(parseInt(d.build.slice(1))+1); d.dur="—"; d.time="进行中"; d.queue=0;
+    logMsg("触发 "+d.name+(tp.length?(" 参数:"+tp.map(p=>p[0]+"="+p[1]).join(", ")):"（无参数）"),"info");
+  });
+  render(); toast("已批量触发 "+selected.size+" 个 pipeline");
+}
+function triggerOne(id){
+  const d=LOCAL.jobs.find(x=>x.id===id);
+  d.status="running"; d.build="#"+(parseInt(d.build.slice(1))+1); d.dur="—"; d.time="进行中"; d.queue=0;
+  logMsg("触发 "+d.name,"info"); render(); toast("已触发 "+d.name);
+}
+
+/* ============ 刷新（手动+自动） ============ */
+document.getElementById("btnRefresh").onclick=()=>{poll();toast("已刷新状态");};
+let autoTimer=null;
+document.getElementById("autoChk").addEventListener("change",e=>{
+  if(e.target.checked){const s=+document.getElementById("autoInt").value;autoTimer=setInterval(poll,s*1000);toast("自动刷新已开启（每 "+s+" 秒）");}
+  else{clearInterval(autoTimer);autoTimer=null;toast("自动刷新已关闭");}
+});
+document.getElementById("autoInt").addEventListener("change",e=>{
+  if(document.getElementById("autoChk").checked){clearInterval(autoTimer);const s=+e.target.value;autoTimer=setInterval(poll,s*1000);toast("间隔改为每 "+s+" 秒");}
+});
+function poll(){
+  LOCAL.jobs.filter(d=>d.status==="running").forEach(d=>{
+    const r=Math.random();
+    d.status=r<0.5?"success":(r<0.8?"failed":"unstable");
+    d.dur=(Math.floor(Math.random()*6)+1)+"m "+(Math.floor(Math.random()*60))+"s"; d.time="刚刚";
+    logMsg(d.name+" → "+STATUS_LABEL[d.status],d.status==="success"?"ok":"err");
+  });
+  render();
+}
+
+/* ============ 工具 ============ */
+function toast(msg){const t=document.getElementById("toast");t.textContent=msg;t.classList.add("show");setTimeout(()=>t.classList.remove("show"),1800);}
+function logMsg(msg,type){const p=document.getElementById("logPanel");const d=document.createElement("div");d.className=type||"";d.textContent="• "+new Date().toLocaleTimeString()+"  "+msg;p.appendChild(d);p.scrollTop=p.scrollHeight;}
+document.getElementById("logToggle").onclick=()=>{const p=document.getElementById("logPanel");p.classList.toggle("show");document.getElementById("logToggle").textContent=(p.classList.contains("show")?"▾":"▸")+" 活动日志";};
+document.getElementById("btnSettings").onclick=()=>{
+  document.getElementById("configJson").value=JSON.stringify(serializeLocal(),null,2);
+  document.getElementById("configOverlay").classList.add("show");
+};
+document.getElementById("btnConfigClose").onclick=()=>document.getElementById("configOverlay").classList.remove("show");
+
+/* ============ 添加分组 · 从 Jenkins 同步 job（树状） ============ */
+let syncSelected=new Set();
+function openSync(){
+  const st=document.getElementById("syncStatus");
+  st.style.display="flex";
+  st.innerHTML='<span class="spinner"></span>正在从 jenkins.local:8080 获取全部 job…';
+  document.getElementById("syncBody").style.display="none";
+  document.getElementById("syncGroupName").value="";
+  document.getElementById("syncSearch").value="";
+  document.getElementById("syncOverlay").classList.add("show");
+  // 模拟 Jenkins API 拉取全部 job（树状）—— 仅「添加分组」这一步查询 Jenkins
+  setTimeout(()=>{
+    syncSelected=new Set(LOCAL.jobs.map(j=>j.id)); // 已缓存的默认勾选
+    st.style.display="none";
+    document.getElementById("syncBody").style.display="block";
+    renderSyncTree();
+  },800);
+}
+function renderSyncTree(){
+  const q=document.getElementById("syncSearch").value.toLowerCase();
+  const tree=document.getElementById("syncTree");
+  tree.innerHTML="";
+  const folders={};
+  JENKINS_ALL_JOBS.forEach(j=>{ if(j.name.toLowerCase().includes(q)) (folders[j.folder]=folders[j.folder]||[]).push(j); });
+  Object.keys(folders).forEach(f=>{
+    const fh=document.createElement("div"); fh.className="stree-folder"; fh.textContent=f; tree.appendChild(fh);
+    folders[f].forEach(j=>{
+      const row=document.createElement("label"); row.className="stree-job";
+      const cb=document.createElement("input"); cb.type="checkbox"; cb.checked=syncSelected.has(j.id);
+      cb.onchange=()=>{ cb.checked?syncSelected.add(j.id):syncSelected.delete(j.id); };
+      const span=document.createElement("span"); span.textContent=j.name.split("/").pop();
+      const jb=document.createElement("span"); jb.className="jb"; jb.textContent="("+j.folder+")";
+      row.append(cb,span,jb); tree.appendChild(row);
+    });
+  });
+  if(!Object.keys(folders).length) tree.innerHTML='<div class="lb-empty">无匹配 job</div>';
+}
+document.getElementById("btnAddGroup").onclick=openSync;
+document.getElementById("btnSyncCancel").onclick=()=>document.getElementById("syncOverlay").classList.remove("show");
+document.getElementById("syncSearch").addEventListener("input",renderSyncTree);
+document.getElementById("btnSyncSave").onclick=()=>{
+  const name=document.getElementById("syncGroupName").value.trim();
+  if(!name){toast("请输入分组名称");return;}
+  if(syncSelected.size===0){toast("请至少勾选一个 job");return;}
+  // 合并到 LOCAL.jobs（已存在则保留状态；新增则取 Jenkins 数据），写回 .jenkins-batch-trigger
+  JENKINS_ALL_JOBS.forEach(j=>{
+    if(syncSelected.has(j.id) && !LOCAL.jobs.find(x=>x.id===j.id)) LOCAL.jobs.push({...j});
+  });
+  LOCAL.groups.push({id:Date.now(),name,ids:new Set(syncSelected)});
+  saveLocal();
+  document.getElementById("syncOverlay").classList.remove("show");
+  render(); toast("已从 Jenkins 同步 "+syncSelected.size+" 个 job，并保存分组："+name);
+};
+
+render();
+</script>
+</body>
+</html>

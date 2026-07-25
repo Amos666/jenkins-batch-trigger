@@ -1,0 +1,111 @@
+{
+  "name": "jenkins-batch-trigger",
+  "displayName": "Jenkins Pipeline Batch Trigger",
+  "description": "Batch trigger Jenkins pipelines with custom params, monitor realtime status, organize jobs in a user-defined tree.",
+  "version": "1.0.0",
+  "publisher": "local",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0",
+    "vscode": "^1.80.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "icon": "media/icon.svg",
+  "activationEvents": [
+    "onView:jenkins-batch-trigger.explorer",
+    "onCommand:jenkins-batch-trigger.configConn",
+    "onCommand:jenkins-batch-trigger.open"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        { "id": "jenkins-batch-trigger", "title": "Jenkins Batch", "icon": "media/icon.svg" }
+      ]
+    },
+    "views": {
+      "jenkins-batch-trigger": [
+        { "id": "jenkins-batch-trigger.explorer", "name": "Pipeline Tree" }
+      ]
+    },
+    "commands": [
+      { "command": "jenkins-batch-trigger.open", "title": "Open Batch Runner", "category": "Jenkins", "icon": "$(play)" },
+      { "command": "jenkins-batch-trigger.addRootFolder", "title": "New Folder", "category": "Jenkins", "icon": "$(new-folder)" },
+      { "command": "jenkins-batch-trigger.addSubFolder", "title": "New Subfolder", "category": "Jenkins", "icon": "$(new-folder)" },
+      { "command": "jenkins-batch-trigger.addJobNodes", "title": "Add Job Nodes", "category": "Jenkins", "icon": "$(add)" },
+      { "command": "jenkins-batch-trigger.renameNode", "title": "Rename", "category": "Jenkins", "icon": "$(edit)" },
+      { "command": "jenkins-batch-trigger.deleteNode", "title": "Delete", "category": "Jenkins", "icon": "$(trash)" },
+      { "command": "jenkins-batch-trigger.refreshNode", "title": "Refresh Status", "category": "Jenkins", "icon": "$(refresh)" },
+      { "command": "jenkins-batch-trigger.openBuild", "title": "Open Build in Browser", "category": "Jenkins" },
+      { "command": "jenkins-batch-trigger.openSettings", "title": "Open Settings", "category": "Jenkins" },
+      { "command": "jenkins-batch-trigger.setApiToken", "title": "Set API Token", "category": "Jenkins" },
+      { "command": "jenkins-batch-trigger.configConn", "title": "Configure Jenkins Connection", "category": "Jenkins", "icon": "$(settings-gear)" },
+      { "command": "jenkins-batch-trigger.clearSelection", "title": "Clear Selection", "category": "Jenkins", "icon": "$(clear-all)" },
+      { "command": "jenkins-batch-trigger.deleteSelectedNodes", "title": "Delete Selected Nodes", "category": "Jenkins", "icon": "$(trash)" }
+    ],
+    "menus": {
+      "view/title": [
+        { "command": "jenkins-batch-trigger.addRootFolder", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@1" },
+        { "command": "jenkins-batch-trigger.addJobNodes", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@2" },
+        { "command": "jenkins-batch-trigger.configConn", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@3" },
+        { "command": "jenkins-batch-trigger.deleteSelectedNodes", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@4" }
+      ],
+      "view/item/context": [
+        { "command": "jenkins-batch-trigger.addSubFolder", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@1" },
+        { "command": "jenkins-batch-trigger.addJobNodes", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@2" },
+        { "command": "jenkins-batch-trigger.refreshNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@3" },
+        { "command": "jenkins-batch-trigger.renameNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "1_edit@1" },
+        { "command": "jenkins-batch-trigger.renameNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == job", "group": "1_edit@1" },
+        { "command": "jenkins-batch-trigger.deleteNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "1_edit@2" },
+        { "command": "jenkins-batch-trigger.deleteNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == job", "group": "1_edit@2" }
+      ],
+      "commandPalette": [
+        { "command": "jenkins-batch-trigger.openBuild", "when": "false" },
+        { "command": "jenkins-batch-trigger.addSubFolder", "when": "false" },
+        { "command": "jenkins-batch-trigger.addJobNodes", "when": "false" },
+        { "command": "jenkins-batch-trigger.renameNode", "when": "false" },
+        { "command": "jenkins-batch-trigger.deleteNode", "when": "false" },
+        { "command": "jenkins-batch-trigger.deleteSelectedNodes", "when": "false" },
+        { "command": "jenkins-batch-trigger.refreshNode", "when": "false" },
+        { "command": "jenkins-batch-trigger.clearSelection", "when": "false" }
+      ]
+    },
+    "configuration": {
+      "title": "Jenkins Batch Trigger",
+      "properties": {
+        "jenkinsBatchTrigger.jenkinsUrl": {
+          "type": "string",
+          "default": "",
+          "description": "Jenkins root URL, e.g. https://jenkins.example.com (no trailing slash)."
+        },
+        "jenkinsBatchTrigger.username": {
+          "type": "string",
+          "default": "",
+          "description": "Jenkins username used together with the API token."
+        },
+        "jenkinsBatchTrigger.trustSelfSignedCert": {
+          "type": "boolean",
+          "default": false,
+          "description": "Accept self-signed / untrusted TLS certificates (common for on-prem Jenkins)."
+        },
+        "jenkinsBatchTrigger.autoRefreshInterval": {
+          "type": "number",
+          "default": 10,
+          "minimum": 3,
+          "description": "Auto-refresh interval in seconds when enabled in the webview."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^18.0.0",
+    "@types/vscode": "^1.80.0",
+    "typescript": "^5.4.0"
+  }
+}

@@ -1,0 +1,124 @@
+import * as vscode from "vscode";
+import { TreeNode } from "./types";
+import { StateService } from "./state";
+
+/**
+ * Native VSCode sidebar tree showing the user-defined folder/job structure.
+ * - Folder nodes: collapsible, support right-click add subfolder/add job/rename/delete.
+ * - Job nodes: leaf, show cached status, checkbox for selection.
+ *
+ * The tree data comes entirely from globalState (no server calls on load).
+ */
+export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
+  private readonly emitter = new vscode.EventEmitter<TreeNode | undefined | null>();
+  readonly onDidChangeTreeData = this.emitter.event;
+
+  constructor(private readonly state: StateService) {}
+
+  refresh(): void {
+    this.emitter.fire(undefined);
+  }
+
+  getTreeItem(element: TreeNode): vscode.TreeItem {
+    if (element.type === "folder") {
+      const children = this.state.getChildren(element.id);
+      const jobCount = this.countJobsRecursive(element.id);
+      const selCount = this.countSelectedJobs(element.id);
+      const item = new vscode.TreeItem(
+        element.name,
+        children.length > 0
+          ? vscode.TreeItemCollapsibleState.Expanded
+          : vscode.TreeItemCollapsibleState.Collapsed
+      );
+      item.description = `${selCount}/${jobCount}`;
+      item.iconPath = new vscode.ThemeIcon("folder");
+      item.tooltip = `文件夹：${element.name}（${jobCount} 个 job，${selCount} 已选）`;
+      item.contextValue = "folder";
+      item.id = element.id;
+      // Folder checkbox reflects whether all child jobs are selected.
+      // The cascade guard in handleCheckbox prevents spurious cascading when
+      // the folder's checkboxState changes programmatically (e.g. after a
+      // single job is unchecked).
+      item.checkboxState =
+        jobCount > 0 && selCount === jobCount
+          ? vscode.TreeItemCheckboxState.Checked
+          : vscode.TreeItemCheckboxState.Unchecked;
+      return item;
+    }
+
+    // Job node.
+    const item = new vscode.TreeItem(
+      element.name,
+      vscode.TreeItemCollapsibleState.None
+    );
+    item.description = element.status || "—";
+    item.iconPath = new vscode.ThemeIcon("symbol-property");
+    item.checkboxState = this.state.selected.has(element.id)
+      ? vscode.TreeItemCheckboxState.Checked
+      : vscode.TreeItemCheckboxState.Unchecked;
+    item.tooltip = `${element.jobPath || element.name} · ${element.status || "未知"}${element.build ? " " + element.build : ""}`;
+    item.contextValue = "job";
+    item.id = element.id;
+    return item;
+  }
+
+  getChildren(element?: TreeNode): TreeNode[] {
+    if (!element) {
+      return this.state.getRootNodes();
+    }
+    if (element.type === "folder") {
+      return this.state.getChildren(element.id);
+    }
+    return [];
+  }
+
+  /** Handle checkbox toggles from the TreeView. */
+  handleCheckbox(node: TreeNode, state: vscode.TreeItemCheckboxState): void {
+    const checked = state === vscode.TreeItemCheckboxState.Checked;
+    if (node.type === "folder") {
+      // Cascade guard: if the event state matches the folder's current
+      // computed state, this is likely a spurious event triggered by
+      // getTreeItem re-rendering (not a real user click). Skip to prevent
+      // unwanted cascading that would deselect all jobs when a single job
+      // is unchecked.
+      const selCount = this.countSelectedJobs(node.id);
+      const jobCount = this.countJobsRecursive(node.id);
+      const allSelected = jobCount > 0 && selCount === jobCount;
+      if (checked === allSelected) return;
+      this.state.selectFolder(node.id, checked);
+    } else {
+      this.state.toggleSelect(node.id, checked);
+      this.refresh();
+    }
+  }
+
+  /** Count all job nodes under a folder (recursive). */
+  private countJobsRecursive(folderId: string): number {
+    let count = 0;
+    for (const node of Object.values(this.state.treeConfig.nodes)) {
+      if (node.parentId === folderId) {
+        if (node.type === "job") {
+          count++;
+        } else if (node.type === "folder") {
+          count += this.countJobsRecursive(node.id);
+        }
+      }
+    }
+    return count;
+  }
+
+  /** Count selected job nodes under a folder (recursive). */
+  private countSelectedJobs(folderId: string): number {
+    let count = 0;
+    for (const node of Object.values(this.state.treeConfig.nodes)) {
+      if (node.parentId === folderId) {
+        if (node.type === "job" && this.state.selected.has(node.id)) {
+          count++;
+        } else if (node.type === "folder") {
+          count += this.countSelectedJobs(node.id);
+        }
+      }
+    }
+    return count;
+  }
+}
