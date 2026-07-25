@@ -6,3 +6,7 @@ node_modules/**
 tsconfig.json
 **/*.map
 .workbuddy/**
+.github/**
+*.html
+README.md
+设计说明.md
