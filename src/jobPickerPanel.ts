@@ -79,11 +79,12 @@ export class JobPickerPanel {
         this.updateCount();
         break;
       case "toggleFolder": {
-        // Toggle all jobs under a folder.
+        // Toggle all jobs under a folder (respecting search filter).
         const folderPrefix = msg.folder;
+        const search = (msg.search || "").toLowerCase().trim();
         const folderJobs = this.allJobs.filter(
-          (j) => j.name.startsWith(folderPrefix + "/") ||
-                 j.folder === folderPrefix
+          (j) => (j.name.startsWith(folderPrefix + "/") || j.folder === folderPrefix) &&
+                 (!search || j.name.toLowerCase().includes(search) || (j.name.split("/").pop() || "").toLowerCase().includes(search))
         );
         if (msg.checked) {
           for (const j of folderJobs) {
@@ -97,16 +98,21 @@ export class JobPickerPanel {
         this.updateCount();
         break;
       }
-      case "selectAll":
+      case "selectAll": {
+        // Select all jobs respecting the current search filter.
+        const search = (msg.search || "").toLowerCase().trim();
         if (msg.checked) {
           for (const j of this.allJobs) {
-            this.selectedJobs.set(j.name, j);
+            if (!search || j.name.toLowerCase().includes(search) || (j.name.split("/").pop() || "").toLowerCase().includes(search)) {
+              this.selectedJobs.set(j.name, j);
+            }
           }
         } else {
           this.selectedJobs.clear();
         }
         this.updateCount();
         break;
+      }
       case "confirm":
         if (this.resolveFn) {
           this.resolveFn([...this.selectedJobs.values()]);
@@ -455,17 +461,17 @@ function renderTree() {
       e.stopPropagation();
       const folderPath = el.dataset.folder;
       const checked = el.checked;
-      // Update local state for all jobs under this folder.
-      // Match by name prefix since the webview doesn't receive the folder field.
+      const search = getSearch();
+      // Only select/deselect jobs that match the current search filter.
       const folderJobs = allJobs.filter(
-        (j) => j.name === folderPath || j.name.startsWith(folderPath + "/")
+        (j) => (j.name === folderPath || j.name.startsWith(folderPath + "/")) && matchesSearch(j, search)
       );
       if (checked) {
         for (const j of folderJobs) selectedNames.add(j.name);
       } else {
         for (const j of folderJobs) selectedNames.delete(j.name);
       }
-      vscode.postMessage({ type: 'toggleFolder', folder: folderPath, checked });
+      vscode.postMessage({ type: 'toggleFolder', folder: folderPath, checked, search });
       updateCount();
       renderTree();
     });
@@ -561,12 +567,26 @@ function escapeAttr(s) {
 // Search input.
 document.getElementById('search').addEventListener('input', renderTree);
 
-// Select all.
+// Helper: get current search term.
+function getSearch() {
+  return document.getElementById('search').value.toLowerCase().trim();
+}
+
+// Helper: check if a job matches the current search filter.
+function matchesSearch(job, search) {
+  if (!search) return true;
+  return job.name.toLowerCase().includes(search) || job.shortName.toLowerCase().includes(search);
+}
+
+// Select all (only filtered/visible jobs).
 document.getElementById('selectAll').addEventListener('change', (e) => {
   const checked = e.target.checked;
-  vscode.postMessage({ type: 'selectAll', checked });
+  const search = getSearch();
+  vscode.postMessage({ type: 'selectAll', checked, search });
   if (checked) {
-    for (const job of allJobs) selectedNames.add(job.name);
+    for (const job of allJobs) {
+      if (matchesSearch(job, search)) selectedNames.add(job.name);
+    }
   } else {
     selectedNames.clear();
   }

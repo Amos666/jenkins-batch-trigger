@@ -45,19 +45,24 @@
       { "command": "jenkins-batch-trigger.setApiToken", "title": "Set API Token", "category": "Jenkins" },
       { "command": "jenkins-batch-trigger.configConn", "title": "Configure Jenkins Connection", "category": "Jenkins", "icon": "$(settings-gear)" },
       { "command": "jenkins-batch-trigger.clearSelection", "title": "Clear Selection", "category": "Jenkins", "icon": "$(clear-all)" },
-      { "command": "jenkins-batch-trigger.deleteSelectedNodes", "title": "Delete Selected Nodes", "category": "Jenkins", "icon": "$(trash)" }
+      { "command": "jenkins-batch-trigger.deleteSelectedNodes", "title": "Delete Selected Nodes", "category": "Jenkins", "icon": "$(trash)" },
+      { "command": "jenkins-batch-trigger.filterTree", "title": "Filter Tree", "category": "Jenkins", "icon": "$(filter)" },
+      { "command": "jenkins-batch-trigger.clearFilter", "title": "Clear Filter", "category": "Jenkins", "icon": "$(filter-filled)" }
     ],
     "menus": {
       "view/title": [
-        { "command": "jenkins-batch-trigger.addRootFolder", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@1" },
-        { "command": "jenkins-batch-trigger.addJobNodes", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@2" },
-        { "command": "jenkins-batch-trigger.configConn", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@3" },
-        { "command": "jenkins-batch-trigger.deleteSelectedNodes", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@4" }
+        { "command": "jenkins-batch-trigger.filterTree", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@1" },
+        { "command": "jenkins-batch-trigger.addRootFolder", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@2" },
+        { "command": "jenkins-batch-trigger.addJobNodes", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@3" },
+        { "command": "jenkins-batch-trigger.configConn", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@4" },
+        { "command": "jenkins-batch-trigger.deleteSelectedNodes", "when": "view == jenkins-batch-trigger.explorer", "group": "navigation@5" }
       ],
       "view/item/context": [
         { "command": "jenkins-batch-trigger.addSubFolder", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@1" },
         { "command": "jenkins-batch-trigger.addJobNodes", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@2" },
-        { "command": "jenkins-batch-trigger.refreshNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@3" },
+        { "command": "jenkins-batch-trigger.deleteNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@3" },
+        { "command": "jenkins-batch-trigger.deleteNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == job", "group": "inline@4" },
+        { "command": "jenkins-batch-trigger.refreshNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "inline@5" },
         { "command": "jenkins-batch-trigger.renameNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "1_edit@1" },
         { "command": "jenkins-batch-trigger.renameNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == job", "group": "1_edit@1" },
         { "command": "jenkins-batch-trigger.deleteNode", "when": "view == jenkins-batch-trigger.explorer && viewItem == folder", "group": "1_edit@2" },
@@ -71,7 +76,8 @@
         { "command": "jenkins-batch-trigger.deleteNode", "when": "false" },
         { "command": "jenkins-batch-trigger.deleteSelectedNodes", "when": "false" },
         { "command": "jenkins-batch-trigger.refreshNode", "when": "false" },
-        { "command": "jenkins-batch-trigger.clearSelection", "when": "false" }
+        { "command": "jenkins-batch-trigger.clearSelection", "when": "false" },
+        { "command": "jenkins-batch-trigger.clearFilter", "when": "false" }
       ]
     },
     "configuration": {

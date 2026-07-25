@@ -51,6 +51,8 @@ let prevSelectedIds = new Set();
 let jobParamMap = new Map();
 // Track which job's param editor is currently expanded.
 let expandedParamJobId = null;
+// Pipeline column display level: 0=job name only, 1=parent/job, 2=grandparent/parent/job
+let pipelineDisplayLevel = 0;
 
 function applySnapshot(s) {
   if (!s) return;
@@ -103,6 +105,27 @@ function logMsg(msg, type) {
   d.textContent = "• " + new Date().toLocaleTimeString() + "  " + msg;
   p.appendChild(d); p.scrollTop = p.scrollHeight;
 }
+// Get pipeline display label based on current display level.
+// Level 0: job name only
+// Level 1: parent/job
+// Level 2: grandparent/parent/job
+function getPipelineDisplayLabel(d) {
+  if (pipelineDisplayLevel === 0) {
+    return d.name;
+  }
+  // Extract path segments from jobPath or folder
+  const fullPath = d.jobPath || d.name;
+  const parts = fullPath.split("/");
+  if (parts.length === 1) {
+    return d.name; // No parent info available
+  }
+  if (pipelineDisplayLevel === 1) {
+    // Show immediate parent + job name
+    return parts.length >= 2 ? parts.slice(-2).join("/") : d.name;
+  }
+  // Level 2: show up to 2 ancestors + job name
+  return parts.length >= 3 ? parts.slice(-3).join("/") : fullPath;
+}
 
 /* ============ 渲染表格 ============ */
 function visibleData() {
@@ -148,7 +171,7 @@ function render() {
     const paramLabel = hasJobParams ? "✎ 参数*" : "✎ 参数";
     tr.innerHTML =
       `<td class="col-check"><input type="checkbox" class="rowchk" data-id="${d.id}" ${checkedAttr}></td>` +
-      `<td><div class="name">${d.name}</div><div class="sub"><span class="folder-tag">${d.folder || d.jobPath || ""}</span></div></td>` +
+      `<td><div class="name" title="${d.jobPath || d.name}">${getPipelineDisplayLabel(d)}</div><div class="sub"><span class="folder-tag">${d.folder || d.jobPath || ""}</span></div></td>` +
       `<td><span class="badge ${BADGE[st] || "b-idle"}"><span class="sw"></span>${STATUS_LABEL[st] || "Unknown"}</span></td>` +
       `<td>${d.queue > 0 ? `<span class="qbadge" title="${d.queue} 个构建在队列中等待">${d.queue} 排队</span>` : '<span style="color:var(--text-faint)">—</span>'}</td>` +
       `<td>${d.build || "—"}</td><td>${d.dur || "—"}</td><td>${d.time || "—"}</td>` +
@@ -361,6 +384,13 @@ document.getElementById("checkAll").addEventListener("change", (e) => {
   }
   render();
 });
+// Pipeline column header: double-click to cycle display level (0=job, 1=parent/job, 2=grandparent/parent/job)
+document.getElementById("thPipeline").addEventListener("dblclick", () => {
+  pipelineDisplayLevel = (pipelineDisplayLevel + 1) % 3;
+  const levelNames = ["仅 job 名称", "上级目录/job", "上上级/上级/job"];
+  toast("Pipeline 显示：" + levelNames[pipelineDisplayLevel]);
+  render();
+});
 document.getElementById("tbody").addEventListener("click", (e) => {
   if (e.target.dataset.run) triggerOne(e.target.dataset.run);
   if (e.target.dataset.abort) abortOne(e.target.dataset.abort);
@@ -530,8 +560,8 @@ async function doRefresh() {
   toast("已刷新状态");
 }
 let autoTimer = null;
-// Auto refresh: only refresh non-terminal jobs (running, queued, unknown).
-// Terminal states (success/failed/aborted) are not re-queried to save requests.
+// Auto refresh: refresh non-terminal jobs (running, unknown) AND terminal jobs
+// that still have queue > 0 (queued). Terminal states with no queue are skipped.
 async function doAutoRefresh() {
   const r = await rpc("refresh", { mode: "nonTerminal" });
   if (r) applySnapshot(r);

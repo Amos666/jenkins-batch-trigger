@@ -13,10 +13,48 @@ export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
   private readonly emitter = new vscode.EventEmitter<TreeNode | undefined | null>();
   readonly onDidChangeTreeData = this.emitter.event;
 
+  /**
+   * Display level per job node ID for cycling name display on double-click.
+   * 0 = job name only, 1 = parent/job, 2 = grandparent/parent/job, then cycles back.
+   */
+  private displayLevels = new Map<string, number>();
+
   constructor(private readonly state: StateService) {}
 
   refresh(): void {
     this.emitter.fire(undefined);
+  }
+
+  /** Cycle the display level for a job node (0 → 1 → 2 → 0 …). */
+  cycleDisplayName(nodeId: string): void {
+    const cur = this.displayLevels.get(nodeId) || 0;
+    this.displayLevels.set(nodeId, (cur + 1) % 3);
+    this.emitter.fire(undefined);
+  }
+
+  /** Build a display label for a job node based on its display level. */
+  private getJobDisplayLabel(element: TreeNode): string {
+    const level = this.displayLevels.get(element.id) || 0;
+    if (level === 0) {
+      return element.name;
+    }
+    // Walk up the parent chain to collect ancestor folder names.
+    const ancestors: string[] = [];
+    let parentId = element.parentId;
+    while (parentId) {
+      const parent = this.state.treeConfig.nodes[parentId];
+      if (!parent) break;
+      ancestors.unshift(parent.name);
+      parentId = parent.parentId;
+    }
+    if (level === 1) {
+      // Show immediate parent + job name.
+      const parent = ancestors.length > 0 ? ancestors[ancestors.length - 1] : "";
+      return parent ? `${parent}/${element.name}` : element.name;
+    }
+    // level === 2: show up to 2 ancestors + job name.
+    const prefix = ancestors.slice(-2);
+    return prefix.length > 0 ? `${prefix.join("/")}/${element.name}` : element.name;
   }
 
   getTreeItem(element: TreeNode): vscode.TreeItem {
@@ -47,8 +85,9 @@ export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
     }
 
     // Job node.
+    const displayLabel = this.getJobDisplayLabel(element);
     const item = new vscode.TreeItem(
-      element.name,
+      displayLabel,
       vscode.TreeItemCollapsibleState.None
     );
     item.description = element.status || "—";

@@ -96,6 +96,26 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  // Double-click detection on job nodes: cycle display name format.
+  let lastClickTime = 0;
+  let lastClickId = "";
+  context.subscriptions.push(
+    treeView.onDidChangeSelection((e) => {
+      const now = Date.now();
+      if (e.selection.length === 1) {
+        const node = e.selection[0];
+        if (node.type === "job" && node.id === lastClickId && now - lastClickTime < 500) {
+          tree.cycleDisplayName(node.id);
+          lastClickTime = 0;
+          lastClickId = "";
+        } else {
+          lastClickTime = now;
+          lastClickId = node.id;
+        }
+      }
+    })
+  );
+
   // Status bar: connection indicator.
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   status.command = "jenkins-batch-trigger.openSettings";
@@ -136,6 +156,26 @@ function registerCommands(
   let deleteInProgress = false;
   const subs = [
     vscode.commands.registerCommand("jenkins-batch-trigger.open", () => webview.show()),
+
+    // ---- Sidebar filter ----
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.filterTree", async () => {
+      const value = await vscode.window.showInputBox({
+        prompt: "输入过滤关键词（名称或路径）",
+        value: state.filterText,
+        placeHolder: "例如：deploy、team-a",
+        ignoreFocusOut: true,
+      });
+      if (value !== undefined) {
+        state.setFilter(value);
+        treeView.description = value ? `过滤: ${value}` : undefined;
+      }
+    }),
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.clearFilter", () => {
+      state.setFilter("");
+      treeView.description = undefined;
+    }),
 
     // ---- Tree structure commands ----
 

@@ -33,6 +33,8 @@ export class StateService {
   /** IDs of currently checked job nodes. */
   selected = new Set<string>();
   paramTemplates: ParamTemplate[];
+  /** Current sidebar filter text (empty = show all). */
+  filterText = "";
 
   constructor(
     private readonly store: GlobalStore,
@@ -150,21 +152,42 @@ export class StateService {
     this.store.saveTree(this.treeConfig);
   }
 
-  /** Get root-level nodes. */
+  /** Set the sidebar filter text and refresh the tree. */
+  setFilter(text: string): void {
+    this.filterText = text.trim().toLowerCase();
+    this.notifyTree();
+  }
+
+  /** Check if a node (or its descendants) matches the current filter. */
+  nodeMatchesFilter(node: TreeNode): boolean {
+    if (!this.filterText) return true;
+    if (node.name.toLowerCase().includes(this.filterText)) return true;
+    if (node.type === "job" && node.jobPath && node.jobPath.toLowerCase().includes(this.filterText)) return true;
+    if (node.type === "folder") {
+      return Object.values(this.treeConfig.nodes).some(
+        (child) => child.parentId === node.id && this.nodeMatchesFilter(child)
+      );
+    }
+    return false;
+  }
+
+  /** Get root-level nodes (filtered). */
   getRootNodes(): TreeNode[] {
     return this.treeConfig.rootIds
       .map((id) => this.treeConfig.nodes[id])
-      .filter((n): n is TreeNode => !!n);
+      .filter((n): n is TreeNode => !!n)
+      .filter((n) => this.nodeMatchesFilter(n));
   }
 
-  /** Get children of a folder node. */
+  /** Get children of a folder node (filtered). */
   getChildren(parentId: string | null): TreeNode[] {
     if (parentId === null) {
       return this.getRootNodes();
     }
     return Object.values(this.treeConfig.nodes)
       .filter((n) => n.parentId === parentId)
-      .filter((n): n is TreeNode => !!n);
+      .filter((n): n is TreeNode => !!n)
+      .filter((n) => this.nodeMatchesFilter(n));
   }
 
   /** Create a new folder node under a parent (or root if null). */
@@ -427,8 +450,10 @@ export class StateService {
    * Refresh status of all selected job nodes.
    * @param mode "all" (default) refresh every selected job;
    *             "nonTerminal" only refresh jobs whose status is not terminal
-   *             (i.e. running, queued, unknown). Terminal states
-   *             (success/failed/aborted) are skipped to save requests.
+   *             (i.e. running, unknown). Terminal states
+   *             (success/failed/aborted) are skipped to save requests,
+   *             UNLESS the job still has queue > 0 (queued), in which case
+   *             it is still refreshed until the queued build starts.
    */
   async refreshSelected(mode: "all" | "nonTerminal" = "all"): Promise<{ errors: string[] }> {
     const allJobs = this.getSelectedJobs();
@@ -436,10 +461,12 @@ export class StateService {
       return { errors: [] };
     }
     // Terminal statuses that don't need re-querying during auto-refresh.
+    // However, if a terminal-state job still has queue > 0 (queued), it must
+    // still be refreshed so we can detect when the queued build starts.
     const TERMINAL = new Set(["success", "failed", "aborted"]);
     const jobs =
       mode === "nonTerminal"
-        ? allJobs.filter((j) => !TERMINAL.has(j.status || "unknown"))
+        ? allJobs.filter((j) => !TERMINAL.has(j.status || "unknown") || (j.queue && j.queue > 0))
         : allJobs;
     if (jobs.length === 0) {
       return { errors: [] };

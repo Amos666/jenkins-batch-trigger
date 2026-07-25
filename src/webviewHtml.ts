@@ -106,7 +106,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
       <table>
         <thead><tr>
           <th class="col-check"><input type="checkbox" id="checkAll" /></th>
-          <th>Pipeline</th><th>状态</th>
+          <th id="thPipeline" title="双击切换名称显示层级">Pipeline</th><th>状态</th>
           <th title="该 job 当前在 Jenkins 构建队列中等待的数量">队列</th>
           <th>上次构建</th><th>耗时</th><th>最近运行</th>
           <th title="点击在浏览器打开该次构建的真实页面">当前构建</th>
