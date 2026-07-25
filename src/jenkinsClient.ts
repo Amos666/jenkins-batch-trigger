@@ -14,6 +14,7 @@ export interface JenkinsCredsProvider {
   readSettings(): Promise<JenkinsSettings>;
   writeSettings(settings: Partial<JenkinsSettings>): Promise<void>;
   saveToken(token: string): Promise<void>;
+  getProxyUrl(): Promise<string | undefined>;
 }
 
 interface RawResp {
@@ -33,6 +34,8 @@ interface RawResp {
  */
 export class JenkinsClient {
   private agent: https.Agent | undefined;
+  private proxyAgent: http.Agent | https.Agent | undefined;
+  private lastProxyUrl: string | undefined;
   /** Optional logger callback; when set, every request/response is reported. */
   logger: ((msg: string) => void) | undefined;
 
@@ -59,7 +62,7 @@ export class JenkinsClient {
     return s;
   }
 
-  private getAgent(trustSelfSignedCert: boolean): https.Agent | undefined {
+  private getDirectAgent(trustSelfSignedCert: boolean): https.Agent | undefined {
     if (!trustSelfSignedCert) {
       return undefined;
     }
@@ -67,6 +70,77 @@ export class JenkinsClient {
       this.agent = new https.Agent({ rejectUnauthorized: false });
     }
     return this.agent;
+  }
+
+  /**
+   * Build an agent that routes through an HTTP proxy.
+   * For HTTPS targets, uses HTTP CONNECT tunneling.
+   * For HTTP targets, uses a plain forwarding proxy.
+   */
+  private async getProxyAgent(
+    targetProtocol: string,
+    trustSelfSignedCert: boolean
+  ): Promise<http.Agent | https.Agent | undefined> {
+    const proxyUrl = await this.creds.getProxyUrl();
+    if (!proxyUrl) return undefined;
+
+    if (this.proxyAgent && this.lastProxyUrl === proxyUrl) {
+      return this.proxyAgent;
+    }
+
+    const proxy = new URL(proxyUrl);
+    const proxyHost = proxy.hostname;
+    const proxyPort = parseInt(proxy.port || (proxy.protocol === "https:" ? "443" : "80"), 10);
+    const proxyAuth = proxy.username
+      ? `${proxy.username}:${proxy.password}`
+      : undefined;
+
+    const makeHttpsOverHttpAgent = (): https.Agent => {
+      const createConnection = (
+        options: any,
+        callback: (err: Error | null, socket?: any) => void
+      ) => {
+        const targetHost = `${options.hostname || "localhost"}:${options.port || 443}`;
+        const req = http.request({
+          hostname: proxyHost,
+          port: proxyPort,
+          method: "CONNECT",
+          path: targetHost,
+          headers: proxyAuth
+            ? { "Proxy-Authorization": "Basic " + Buffer.from(proxyAuth).toString("base64") }
+            : undefined,
+        });
+        req.on("connect", (res, socket) => {
+          if (res.statusCode === 200) {
+            const tls = require("tls");
+            const tlsSocket = tls.connect({
+              socket,
+              servername: options.hostname,
+              rejectUnauthorized: !trustSelfSignedCert,
+            });
+            callback(null, tlsSocket);
+          } else {
+            callback(new Error(`代理 CONNECT 失败：HTTP ${res.statusCode}`));
+          }
+        });
+        req.on("error", (err) => callback(err));
+        req.end();
+      };
+      return new https.Agent({ keepAlive: false, createConnection } as any);
+    };
+
+    if (targetProtocol === "https:") {
+      this.proxyAgent = makeHttpsOverHttpAgent();
+    } else {
+      this.proxyAgent = new http.Agent({
+        host: proxyHost,
+        port: proxyPort,
+        keepAlive: false,
+      });
+    }
+
+    this.lastProxyUrl = proxyUrl;
+    return this.proxyAgent;
   }
 
   private async req(
@@ -85,7 +159,7 @@ export class JenkinsClient {
   }
 
   /** Actually perform an HTTP request with redirect-following, timeout, and friendly errors. */
-  private doRequest(
+  private async doRequest(
     method: string,
     fullUrl: string,
     s: JenkinsSettings,
@@ -103,64 +177,73 @@ export class JenkinsClient {
       headers["Content-Type"] = "application/x-www-form-urlencoded";
       headers["Content-Length"] = String(Buffer.byteLength(body));
     }
+
+    const proxyAgent = await this.getProxyAgent(u.protocol, s.trustSelfSignedCert);
+    const agent = proxyAgent || this.getDirectAgent(s.trustSelfSignedCert);
+
     return new Promise<RawResp>((resolve, reject) => {
-      const req = lib.request(
-        {
-          hostname: u.hostname,
-          port: u.port || (u.protocol === "https:" ? 443 : 80),
-          path: u.pathname + u.search,
-          method,
-          headers,
-          agent: this.getAgent(s.trustSelfSignedCert),
-          timeout: 30000,
-        },
-        (res) => {
-          let data = "";
-          res.on("data", (c) => (data += c));
-          res.on("end", () => {
-            const status = res.statusCode || 0;
-            // Follow 3xx redirects (up to 5 hops).
-            if (status >= 300 && status < 400 && res.headers.location && redirects < 5) {
-              const loc = res.headers.location;
-              const location = Array.isArray(loc) ? loc[0] : loc;
-              if (location) {
-                const nextUrl = location.startsWith("http")
-                  ? location
-                  : new URL(location, fullUrl).href;
-                this.log(`↪ ${status} redirect → ${nextUrl}`);
-                resolve(this.doRequest("GET", nextUrl, s, undefined, redirects + 1));
-                return;
-              }
+      let reqOptions: http.RequestOptions | https.RequestOptions = {
+        hostname: u.hostname,
+        port: u.port || (u.protocol === "https:" ? 443 : 80),
+        path: u.pathname + u.search,
+        method,
+        headers,
+        agent: agent as any,
+        timeout: 30000,
+      };
+
+      const req = lib.request(reqOptions, (res) => {
+        let data = "";
+        res.on("data", (c) => (data += c));
+        res.on("end", () => {
+          const status = res.statusCode || 0;
+          if (status >= 300 && status < 400 && res.headers.location && redirects < 5) {
+            const loc = res.headers.location;
+            const location = Array.isArray(loc) ? loc[0] : loc;
+            if (location) {
+              const nextUrl = location.startsWith("http")
+                ? location
+                : new URL(location, fullUrl).href;
+              this.log(`↪ ${status} redirect → ${nextUrl}`);
+              void this.doRequest("GET", nextUrl, s, undefined, redirects + 1).then(resolve, reject);
+              return;
             }
-            // Log response status and short body preview for debugging.
-            const preview = data.length > 200 ? data.slice(0, 200) + "…" : data;
-            this.log(`← ${status} ${fullUrl} (${data.length}B) ${preview}`);
-            resolve({ status, headers: res.headers, body: data });
-          });
-        }
-      );
-      req.on("error", (err: NodeJS.ErrnoException) => {
-        // Provide friendly messages for common network/SSL errors.
-        const msg = err.message || "";
-        this.log(`✗ ${method} ${fullUrl} error: ${err.code || msg}`);
-        if (msg.includes("self-signed") || msg.includes("SELF_SIGNED_CERT") || err.code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" || err.code === "CERT_HAS_EXPIRED") {
-          reject(new Error(
-            `SSL 证书验证失败（${err.code || msg}）。请在配置中勾选「信任自签名证书」选项。`
-          ));
-        } else if (err.code === "ENOTFOUND" || err.code === "ECONNREFUSED") {
-          reject(new Error(
-            `无法连接到 Jenkins 服务器（${err.code}）：${u.host}。请检查 URL 是否正确、Jenkins 是否正在运行。`
-          ));
-        } else if (err.code === "ETIMEDOUT") {
-          reject(new Error(`连接 Jenkins 超时：${u.host}。请检查网络或 URL。`));
-        } else {
-          reject(new Error(`网络请求失败：${msg}`));
-        }
+          }
+          const preview = data.length > 200 ? data.slice(0, 200) + "…" : data;
+          this.log(`← ${status} ${fullUrl} (${data.length}B) ${preview}`);
+          resolve({ status, headers: res.headers, body: data });
+        });
       });
+
+      req.on("error", (err: NodeJS.ErrnoException) => {
+        const msg = err.message || "";
+        const code = err.code || "";
+        this.log(`✗ ${method} ${fullUrl} error: ${code || msg}`);
+
+        let friendlyMsg: string;
+        if (msg.includes("self-signed") || msg.includes("SELF_SIGNED_CERT") || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" || code === "CERT_HAS_EXPIRED") {
+          friendlyMsg = `SSL 证书验证失败（${code || msg}）。请在配置中勾选「信任自签名证书」选项。`;
+        } else if (code === "ENOTFOUND") {
+          friendlyMsg = `无法解析 Jenkins 服务器地址（${u.host}）。请检查 URL 是否正确，或检查 DNS/网络配置。`;
+        } else if (code === "ECONNREFUSED") {
+          friendlyMsg = `连接被拒绝（${u.host}）。请检查 Jenkins 是否正在运行、端口是否正确。`;
+        } else if (code === "ETIMEDOUT" || code === "ECONNRESET") {
+          friendlyMsg = `连接 ${code === "ECONNRESET" ? "被重置" : "超时"}（${u.host}）。请检查网络连接或 Jenkins 服务器状态。`;
+        } else if (code === "EAI_AGAIN") {
+          friendlyMsg = `DNS 解析失败（${u.host}）。请检查网络连接或代理配置。`;
+        } else if (msg.includes("代理") || msg.includes("proxy") || msg.includes("PROXY")) {
+          friendlyMsg = `代理连接失败：${msg}。请检查 VSCode 代理设置。`;
+        } else {
+          friendlyMsg = `网络请求失败（${code || "未知错误"}）：${msg}。请检查网络连接、代理设置或 Jenkins 服务器状态。`;
+        }
+        reject(new Error(friendlyMsg));
+      });
+
       req.on("timeout", () => {
         this.log(`✗ ${method} ${fullUrl} timeout (30s)`);
         req.destroy(new Error(`请求 Jenkins 超时（30s）：${u.host}`));
       });
+
       if (body !== undefined) {
         req.write(body);
       }

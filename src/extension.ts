@@ -34,6 +34,12 @@ export function activate(context: vscode.ExtensionContext): void {
     async saveToken(token: string): Promise<void> {
       await context.secrets.store("apiToken", token);
     },
+    async getProxyUrl(): Promise<string | undefined> {
+      const httpCfg = vscode.workspace.getConfiguration("http");
+      const proxy = httpCfg.get<string>("proxy");
+      if (proxy) return proxy || undefined;
+      return process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.http_proxy || process.env.https_proxy || undefined;
+    },
   };
 
   const state = new StateService(store, credsProvider, context.extensionUri);

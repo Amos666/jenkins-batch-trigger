@@ -104,6 +104,7 @@ export class StateService {
         }),
         writeSettings: this.creds.writeSettings.bind(this.creds),
         saveToken: this.creds.saveToken.bind(this.creds),
+        getProxyUrl: this.creds.getProxyUrl.bind(this.creds),
       };
       const testClient = new JenkinsClient(testProvider);
       // Forward test-connection network logs to the webview as well.
