@@ -6,7 +6,7 @@
   "publisher": "local",
   "license": "MIT",
   "engines": {
-    "node": ">=18.0.0",
+    "node": ">=24.0.0",
     "vscode": "^1.80.0"
   },
   "categories": ["Other"],
@@ -104,7 +104,7 @@
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
-    "@types/node": "^18.0.0",
+    "@types/node": "^24.0.0",
     "@types/vscode": "^1.80.0",
     "typescript": "^5.4.0"
   }
