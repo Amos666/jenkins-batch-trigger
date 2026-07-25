@@ -5,6 +5,10 @@
   "version": "1.0.0",
   "publisher": "local",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Amos666/jenkins-batch-trigger.git"
+  },
   "engines": {
     "node": ">=24.0.0",
     "vscode": "^1.80.0"
