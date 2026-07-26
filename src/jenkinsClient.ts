@@ -38,6 +38,7 @@ export class JenkinsClient {
   private agent: https.Agent | undefined;
   private proxyAgent: http.Agent | https.Agent | undefined;
   private lastProxyUrl: string | undefined;
+  private lastTrustSelfSignedCert: boolean | undefined;
   /** Optional logger callback; when set, every request/response is reported. */
   logger: ((msg: string) => void) | undefined;
 
@@ -91,7 +92,7 @@ export class JenkinsClient {
     const proxyUrl = await this.creds.getProxyUrl();
     if (!proxyUrl) return undefined;
 
-    if (this.proxyAgent && this.lastProxyUrl === proxyUrl) {
+    if (this.proxyAgent && this.lastProxyUrl === proxyUrl && this.lastTrustSelfSignedCert === trustSelfSignedCert) {
       return this.proxyAgent;
     }
 
@@ -147,6 +148,7 @@ export class JenkinsClient {
     }
 
     this.lastProxyUrl = proxyUrl;
+    this.lastTrustSelfSignedCert = trustSelfSignedCert;
     return this.proxyAgent;
   }
 
