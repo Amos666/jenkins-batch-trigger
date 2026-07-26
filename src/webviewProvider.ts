@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { getWebviewHtml } from "./webviewHtml";
 import { StateService, Snapshot } from "./state";
 import { ParamTemplate } from "./types";
+import { getWebviewMessages } from "./i18n";
 
 /** Inbound message shapes from the webview. */
 type InMsg =
@@ -11,12 +12,18 @@ type InMsg =
   | { type: "refresh"; id: number; data: { mode: "all" | "nonTerminal" } }
   | { type: "saveParamTpl"; id: number; data: { name: string; params: [string, string][] } }
   | { type: "deleteParamTpl"; id: number; data: { id: number } }
+  | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
+  | { type: "saveActiveTpl"; data: { name: string } }
+  | { type: "toggleActions"; id: number; data: { jobPath: string } }
+  | { type: "setActionsBatch"; id: number; data: { jobPaths: string[]; enabled: boolean } }
+  | { type: "openActionsConfig" }
   | { type: "openBuild"; data: { url: string } }
   | { type: "clearSelection" };
 
 interface LoadResult extends Snapshot {
   jenkinsUrl: string;
   username: string;
+  activeTpl?: string;
 }
 interface ActionResult extends Snapshot {
   errors: string[];
@@ -71,13 +78,18 @@ export class WebviewProvider {
   pushLog(msg: string): void {
     this.panel?.webview.postMessage({ type: "log", msg });
   }
+  /** Push updated i18n messages when language changes. */
+  pushLocale(messages: Record<string, string>): void {
+    this.panel?.webview.postMessage({ type: "locale", messages });
+  }
 
   private async onMessage(m: InMsg): Promise<void> {
     switch (m.type) {
       case "load": {
         const conn = await this.state.readJenkinsUrl();
-        const r: LoadResult = { ...this.state.snapshot(), jenkinsUrl: conn.url, username: conn.username };
+        const r: LoadResult = { ...this.state.snapshot(), jenkinsUrl: conn.url, username: conn.username, activeTpl: this.state.loadActiveTpl() };
         this.reply(m.id, r);
+        this.panel?.webview.postMessage({ type: "locale", messages: getWebviewMessages() });
         break;
       }
       case "trigger": {
@@ -104,6 +116,30 @@ export class WebviewProvider {
       case "deleteParamTpl": {
         this.state.deleteParamTemplate(m.data.id);
         this.reply(m.id, this.paramResult());
+        break;
+      }
+      case "overwriteDefaultTpl": {
+        this.state.overwriteDefaultTpl(m.data.params);
+        this.reply(m.id, this.paramResult());
+        break;
+      }
+      case "saveActiveTpl": {
+        this.state.saveActiveTpl(m.data.name);
+        break;
+      }
+      case "toggleActions": {
+        await this.state.toggleActions(m.data.jobPath);
+        this.reply(m.id, this.state.snapshot());
+        break;
+      }
+      case "setActionsBatch": {
+        await this.state.setActionsEnabled(m.data.jobPaths, m.data.enabled);
+        this.reply(m.id, this.state.snapshot());
+        break;
+      }
+      case "openActionsConfig": {
+        const { ActionsConfigPanel } = await import("./actionsConfigPanel");
+        ActionsConfigPanel.createOrShow(this.context, this.state);
         break;
       }
       case "openBuild":

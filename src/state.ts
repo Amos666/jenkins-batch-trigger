@@ -3,11 +3,17 @@ import { TreeNode, TreeConfig, genId, ParamTemplate, nextId, Job } from "./types
 import { GlobalStore } from "./globalStore";
 import { JenkinsClient, JenkinsCredsProvider } from "./jenkinsClient";
 import { JobPickerPanel } from "./jobPickerPanel";
+import { ActionStore } from "./actionStore";
+import { ActionEngine, resolveTemplate } from "./actionEngine";
+import { BuildPoller, BuildCompleteInfo } from "./buildPoller";
+import { ActionsConfigFile, ActionContext, emptyActionsConfig } from "./actionTypes";
+import { t } from "./i18n";
 
 /** Snapshot pushed to the webview whenever shared state changes. */
 export interface Snapshot {
   selectedNodes: TreeNode[];
   paramTemplates: ParamTemplate[];
+  enabledPipelines: string[];
 }
 
 /**
@@ -36,10 +42,19 @@ export class StateService {
   /** Current sidebar filter text (empty = show all). */
   filterText = "";
 
+  /* ---- Action system ---- */
+  readonly actionStore: ActionStore;
+  readonly actionEngine: ActionEngine;
+  readonly poller: BuildPoller;
+  private actionsConfig: ActionsConfigFile | null = null;
+  /** Sync cache of enabled pipeline jobPaths for tree rendering. */
+  private enabledPipelines = new Set<string>();
+
   constructor(
     private readonly store: GlobalStore,
     credsProvider: JenkinsCredsProvider,
-    private readonly extensionUri: vscode.Uri
+    private readonly extensionUri: vscode.Uri,
+    globalStorageUri: vscode.Uri
   ) {
     this.treeConfig = store.loadTree();
     this.creds = credsProvider;
@@ -48,6 +63,15 @@ export class StateService {
     this.client.logger = (msg) => this.pushLog(msg);
     this.paramTemplates = store.loadParamTemplates();
     this.picker = new JobPickerPanel();
+
+    // Action system initialization.
+    this.actionStore = new ActionStore(globalStorageUri);
+    this.actionEngine = new ActionEngine((msg) => this.pushLog(msg));
+    this.poller = new BuildPoller(
+      this.client,
+      (info) => void this.onBuildComplete(info),
+      (msg) => this.pushLog(msg)
+    );
   }
 
   attach(tree: { refresh(): void }, webview: { pushState(s: Snapshot): void; pushFilter(search: string, status: string): void; pushLog(msg: string): void }): void {
@@ -67,6 +91,7 @@ export class StateService {
     return {
       selectedNodes,
       paramTemplates: this.paramTemplates,
+      enabledPipelines: [...this.enabledPipelines],
     };
   }
 
@@ -95,7 +120,7 @@ export class StateService {
         apiToken = current.apiToken;
       }
       if (!settings.url || !settings.username || !apiToken) {
-        return { ok: false, error: "URL、用户名和 API Token 不能为空" };
+        return { ok: false, error: t("state.fieldsRequired") };
       }
       const testProvider: JenkinsCredsProvider = {
         readSettings: async () => ({
@@ -267,8 +292,8 @@ export class StateService {
   async addJobNodes(parentId: string | null): Promise<void> {
     // 1. Ask user for Jenkins folder path.
     const folderPath = await vscode.window.showInputBox({
-      prompt: "输入 Jenkins pipeline 路径（留空获取根目录所有 job）",
-      placeHolder: "例如：team-a 或 team-a/sub-team",
+      prompt: t("state.jobPathPrompt"),
+      placeHolder: t("state.jobPathPlaceholder"),
       ignoreFocusOut: true,
     });
     if (folderPath === undefined) return;
@@ -279,12 +304,12 @@ export class StateService {
       jobs = await this.client.listJobsInFolder(folderPath.trim());
     } catch (e) {
       void vscode.window.showErrorMessage(
-        `从 Jenkins 获取路径「${folderPath}」下的 job 失败：${(e as Error).message}`
+        t("state.fetchFailed", { path: folderPath, error: (e as Error).message })
       );
       return;
     }
     if (!jobs.length) {
-      void vscode.window.showInformationMessage(`路径「${folderPath || "根目录"}」下没有可用的 job。`);
+      void vscode.window.showInformationMessage(t("state.noJobs", { path: folderPath || "/" }));
       return;
     }
 
@@ -388,7 +413,7 @@ export class StateService {
 
     this.saveTree();
     this.notifyTree();
-    void vscode.window.showInformationMessage(`已添加 ${added} 个 job 节点。`);
+    void vscode.window.showInformationMessage(t("state.addedJobs", { count: added }));
   }
 
   /* ---------------- selection ---------------- */
@@ -507,7 +532,7 @@ export class StateService {
 
     const jobsToRefresh = collectJobs(folderId);
     if (jobsToRefresh.length === 0) {
-      void vscode.window.showInformationMessage("该节点下没有 job 可刷新。");
+      void vscode.window.showInformationMessage(t("state.noJobsToRefresh"));
       return;
     }
 
@@ -523,9 +548,9 @@ export class StateService {
       this.saveTree();
       this.notifyTree();
       this.pushWebview();
-      void vscode.window.showInformationMessage(`已刷新 ${jobsToRefresh.length} 个 job 的状态。`);
+      void vscode.window.showInformationMessage(t("state.refreshed", { count: jobsToRefresh.length }));
     } catch (e) {
-      void vscode.window.showErrorMessage(`刷新状态失败：${(e as Error).message}`);
+      void vscode.window.showErrorMessage(t("state.refreshFailed", { error: (e as Error).message }));
     }
   }
 
@@ -549,6 +574,26 @@ export class StateService {
     this.notifyTree();
   }
 
+  /** Overwrite the Default template (id=0) with new params. */
+  overwriteDefaultTpl(params: [string, string][]): void {
+    const def = this.paramTemplates.find((t) => t.id === 0);
+    if (def) {
+      def.params = params;
+    } else {
+      this.paramTemplates.unshift({ id: 0, name: "default", params });
+    }
+    this.store.saveParamTemplates(this.paramTemplates);
+    this.notifyTree();
+  }
+
+  saveActiveTpl(name: string | undefined): void {
+    this.store.saveActiveTpl(name);
+  }
+
+  loadActiveTpl(): string | undefined {
+    return this.store.loadActiveTpl();
+  }
+
   /* ---------------- Jenkins actions (webview rpc) ---------------- */
 
   async trigger(
@@ -557,18 +602,50 @@ export class StateService {
     jobParamsMap?: Record<string, Record<string, string>>
   ): Promise<{ errors: string[] }> {
     const errors: string[] = [];
+    const cfg = await this.getActionsConfig();
+
     for (const id of nodeIds) {
       const node = this.treeConfig.nodes[id];
       if (!node || node.type !== "job" || !node.jobPath) {
-        errors.push(`未知 job: ${id}`);
+        errors.push(t("state.unknownJob", { id }));
         continue;
       }
       // Per-job params take priority over the global batch params.
-      const effectiveParams = (jobParamsMap && jobParamsMap[id]) || params;
+      const effectiveParams = { ...((jobParamsMap && jobParamsMap[id]) || params) };
+      const pipelineId = node.jobPath;
+      const actionsEnabled = cfg.enabled_pipelines.includes(pipelineId);
+
+      // ---- Pre-actions ----
+      if (actionsEnabled && cfg.pre_actions.length > 0) {
+        const state = await this.actionStore.loadState(pipelineId);
+        const ctx = this.buildActionContext(effectiveParams, state, node);
+        // Debug: log trigger params available for pre-action template resolution.
+        const preParamKeys = Object.keys(effectiveParams);
+        this.pushLog(t("state.preActionCtx", {
+          path: node.jobPath || node.name,
+          params: preParamKeys.length ? preParamKeys.map((k) => k + "=" + effectiveParams[k]).join(", ") : "(empty)"
+        }));
+        const result = await this.actionEngine.executePreActions(cfg.pre_actions, ctx);
+        if (!result.ok) {
+          errors.push(t("state.preActionFailed", { name: node.name, error: result.errors.join("; ") }));
+          continue;
+        }
+        // Merge mutated pipeline_params back into effectiveParams.
+        Object.assign(effectiveParams, ctx.pipeline_params);
+      }
+
+      // ---- Trigger ----
+      let queueUrl: string | undefined;
       try {
-        await this.client.triggerBuild(node.jobPath, effectiveParams);
+        queueUrl = await this.client.triggerBuild(node.jobPath, effectiveParams);
       } catch (e) {
         errors.push(`${node.name}: ${(e as Error).message}`);
+        continue;
+      }
+
+      // ---- Register for post-action polling ----
+      if (actionsEnabled && cfg.post_actions.length > 0) {
+        this.poller.watch(pipelineId, node.jobPath, queueUrl || null, effectiveParams);
       }
     }
     // Refresh status of triggered jobs.
@@ -627,5 +704,150 @@ export class StateService {
     }
     this.notifyTree();
     return { errors };
+  }
+
+  /* ---------------- Action system ---------------- */
+
+  private buildActionContext(
+    triggerParams: Record<string, string>,
+    state: Record<string, unknown>,
+    node: TreeNode
+  ): ActionContext {
+    return {
+      trigger: { params: { ...triggerParams } },
+      pipeline_logs: "",
+      state,
+      pipeline_params: { ...triggerParams },
+      env: { ...process.env } as Record<string, string | undefined>,
+      pipeline: { name: node.name, jobPath: node.jobPath || "" },
+      run: { prev: { id: (state as any).last_run_id || "" } },
+    };
+  }
+
+  /** Called by BuildPoller when a watched build completes. Runs post-actions. */
+  private async onBuildComplete(info: BuildCompleteInfo): Promise<void> {
+    const { build, result, logs } = info;
+    this.pushLog(t("state.postActionStart", { path: build.jobPath, build: build.buildNumber ?? 0, result }));
+
+    const cfg = await this.getActionsConfig();
+    if (!cfg.post_actions.length) return;
+
+    const state = await this.actionStore.loadState(build.pipelineId);
+    const ctx: ActionContext = {
+      trigger: { params: build.triggerParams },
+      pipeline_logs: logs,
+      state,
+      pipeline_params: {},
+      env: { ...process.env } as Record<string, string | undefined>,
+      pipeline: { name: build.pipelineId.split("/").pop() || build.pipelineId, jobPath: build.jobPath },
+      run: { prev: { id: (state as any).last_run_id || "" } },
+    };
+
+    // Debug: log trigger params available for post-action template resolution.
+    const paramKeys = Object.keys(build.triggerParams || {});
+    this.pushLog(t("state.postActionCtx", {
+      path: build.jobPath,
+      params: paramKeys.length ? paramKeys.map((k) => k + "=" + build.triggerParams[k]).join(", ") : "(empty)"
+    }));
+
+    const postResult = await this.actionEngine.executePostActions(cfg.post_actions, ctx);
+    if (postResult.ok) {
+      (ctx.state as any).last_run_id = String(build.buildNumber ?? "");
+      await this.actionStore.saveState(build.pipelineId, ctx.state as any);
+      this.pushLog(t("state.postActionOk", { path: build.jobPath }));
+    } else {
+      this.pushLog(t("state.postActionFailed", { path: build.jobPath, error: postResult.errors.join("; ") }));
+    }
+  }
+
+  /** Check if actions are enabled for a given pipeline (by jobPath). */
+  async isActionsEnabled(jobPath: string): Promise<boolean> {
+    const cfg = await this.getActionsConfig();
+    return cfg.enabled_pipelines.includes(jobPath);
+  }
+
+  /** Toggle actions enabled/disabled for a pipeline. */
+  async toggleActions(jobPath: string): Promise<boolean> {
+    const cfg = await this.getActionsConfig();
+    const idx = cfg.enabled_pipelines.indexOf(jobPath);
+    if (idx >= 0) {
+      cfg.enabled_pipelines.splice(idx, 1);
+    } else {
+      cfg.enabled_pipelines.push(jobPath);
+    }
+    await this.actionStore.saveConfig(cfg);
+    this.actionsConfig = cfg;
+    this.syncEnabledSet();
+    this.notifyTree();
+    return idx < 0; // true = now enabled
+  }
+
+  /** Batch set actions enabled/disabled for multiple pipelines. */
+  async setActionsEnabled(jobPaths: string[], enabled: boolean): Promise<void> {
+    const cfg = await this.getActionsConfig();
+    for (const jp of jobPaths) {
+      const idx = cfg.enabled_pipelines.indexOf(jp);
+      if (enabled && idx < 0) {
+        cfg.enabled_pipelines.push(jp);
+      } else if (!enabled && idx >= 0) {
+        cfg.enabled_pipelines.splice(idx, 1);
+      }
+    }
+    await this.actionStore.saveConfig(cfg);
+    this.actionsConfig = cfg;
+    this.syncEnabledSet();
+    this.notifyTree();
+  }
+
+  /** Get the actions config (cached). */
+  async getActionsConfig(): Promise<ActionsConfigFile> {
+    if (!this.actionsConfig) {
+      this.actionsConfig = await this.actionStore.loadConfig();
+      this.syncEnabledSet();
+    }
+    return this.actionsConfig;
+  }
+
+  /** Save actions config and invalidate cache. */
+  async saveActionsConfig(cfg: ActionsConfigFile): Promise<void> {
+    await this.actionStore.saveConfig(cfg);
+    this.actionsConfig = cfg;
+    this.syncEnabledSet();
+    this.notifyTree();
+  }
+
+  private syncEnabledSet(): void {
+    this.enabledPipelines = new Set(this.actionsConfig?.enabled_pipelines ?? []);
+  }
+
+  /** Synchronous check for tree rendering. */
+  isActionsEnabledSync(jobPath: string): boolean {
+    return this.enabledPipelines.has(jobPath);
+  }
+
+  /** Synchronous check if a pipeline is being polled (for tree icon). */
+  isPollingSync(jobPath: string): boolean {
+    return this.poller.isWatching(jobPath);
+  }
+
+  /** Dry-run pre-actions for a pipeline without triggering. Returns rendered params. */
+  async dryRunPreActions(
+    jobPath: string,
+    triggerParams: Record<string, string>
+  ): Promise<{ ok: boolean; params: Record<string, string>; errors: string[]; logs: string[] }> {
+    const logs: string[] = [];
+    const engine = new ActionEngine((msg) => logs.push(msg));
+    const cfg = await this.getActionsConfig();
+    const state = await this.actionStore.loadState(jobPath);
+    const node: TreeNode = {
+      id: "dry-run",
+      type: "job",
+      name: jobPath.split("/").pop() || jobPath,
+      parentId: null,
+      jobPath,
+    };
+    const ctx = this.buildActionContext(triggerParams, state, node);
+    const result = await engine.executePreActions(cfg.pre_actions, ctx);
+    return { ok: result.ok, params: ctx.pipeline_params, errors: result.errors, logs };
   }
 }

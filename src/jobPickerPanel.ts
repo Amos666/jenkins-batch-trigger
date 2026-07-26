@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { Job } from "./types";
+import { t } from "./i18n";
 
 /**
  * A dedicated WebviewPanel for picking jobs from a Jenkins folder.
@@ -29,7 +30,7 @@ export class JobPickerPanel {
 
       this.panel = vscode.window.createWebviewPanel(
         "jobPicker",
-        `选择 Job${folderPath ? " · " + folderPath : ""}`,
+        `${t("picker.title")}${folderPath ? " · " + folderPath : ""}`,
         vscode.ViewColumn.Active,
         {
           enableScripts: true,
@@ -150,7 +151,7 @@ export class JobPickerPanel {
 <head>
 <meta charset="UTF-8" />
 <meta http-equiv="Content-Security-Policy" content="${csp}" />
-<title>选择 Job</title>
+<title>${t("picker.title")}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
@@ -320,25 +321,25 @@ export class JobPickerPanel {
 <body>
 
 <div class="header">
-  <h2>选择 Job${folderPath ? "（" + folderPath + "）" : ""}</h2>
-  <input class="search-box" id="search" placeholder="搜索 job 名称或路径…" autofocus />
+  <h2>${t("picker.title")}${folderPath ? "（" + folderPath + "）" : ""}</h2>
+  <input class="search-box" id="search" placeholder="${t("picker.searchPlaceholder")}" autofocus />
   <div class="header-actions">
     <label style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer;">
-      <input type="checkbox" id="selectAll" class="checkbox" /> 全选
+      <input type="checkbox" id="selectAll" class="checkbox" /> ${t("picker.selectAll")}
     </label>
-    <span class="count-badge" id="countBadge">0 已选</span>
+    <span class="count-badge" id="countBadge">${t("picker.selected", { n: 0 })}</span>
   </div>
 </div>
 
 <div class="tree-container" id="treeContainer">
-  <div class="empty" id="loadingHint">正在加载 job 列表…</div>
+  <div class="empty" id="loadingHint">${t("picker.loading")}</div>
 </div>
 
 <div class="footer">
-  <div class="footer-info" id="footerInfo">共 0 个 job</div>
+  <div class="footer-info" id="footerInfo">${t("picker.total", { n: 0 })}</div>
   <div class="footer-actions">
-    <button class="btn" id="btnCancel">取消</button>
-    <button class="btn primary" id="btnConfirm" disabled>确认添加</button>
+    <button class="btn" id="btnCancel">${t("picker.cancel")}</button>
+    <button class="btn primary" id="btnConfirm" disabled>${t("picker.confirm")}</button>
   </div>
 </div>
 
@@ -388,7 +389,7 @@ function renderTree() {
   container.innerHTML = "";
 
   if (allJobs.length === 0) {
-    container.innerHTML = '<div class="empty">该路径下没有可用的 job</div>';
+    container.innerHTML = '<div class="empty">${t("picker.empty")}</div>';
     return;
   }
 
@@ -529,7 +530,7 @@ function isSelected(fullName) {
 }
 
 function updateCount() {
-  document.getElementById('countBadge').textContent = selectedNames.size + ' 已选';
+  document.getElementById('countBadge').textContent = '${t("picker.selected", { n: "" })}'.replace('{n}', selectedNames.size);
   document.getElementById('btnConfirm').disabled = selectedNames.size === 0;
 }
 
@@ -609,7 +610,7 @@ window.addEventListener('message', (e) => {
     allJobs = m.data;
     folderTree = buildTree(allJobs);
     document.getElementById('loadingHint').style.display = 'none';
-    document.getElementById('footerInfo').textContent = '共 ' + allJobs.length + ' 个 job';
+    document.getElementById('footerInfo').textContent = '${t("picker.total", { n: "" })}'.replace('{n}', allJobs.length);
     renderTree();
   } else if (m.type === 'count') {
     // Sync selection state from extension.

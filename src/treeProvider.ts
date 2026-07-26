@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { TreeNode } from "./types";
 import { StateService } from "./state";
+import { t } from "./i18n";
 
 /**
  * Native VSCode sidebar tree showing the user-defined folder/job structure.
@@ -70,13 +71,12 @@ export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       );
       item.description = `${selCount}/${jobCount}`;
       item.iconPath = new vscode.ThemeIcon("folder");
-      item.tooltip = `文件夹：${element.name}（${jobCount} 个 job，${selCount} 已选）`;
+      item.tooltip = new vscode.MarkdownString(
+        `$(folder) **${element.name}**\n\n` +
+        t("tree.folderTip", { jobs: jobCount, sel: selCount })
+      );
       item.contextValue = "folder";
       item.id = element.id;
-      // Folder checkbox reflects whether all child jobs are selected.
-      // The cascade guard in handleCheckbox prevents spurious cascading when
-      // the folder's checkboxState changes programmatically (e.g. after a
-      // single job is unchecked).
       item.checkboxState =
         jobCount > 0 && selCount === jobCount
           ? vscode.TreeItemCheckboxState.Checked
@@ -84,19 +84,20 @@ export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       return item;
     }
 
-    // Job node.
+    // Job node — simple icon, no status display (status is shown in the webview).
     const displayLabel = this.getJobDisplayLabel(element);
     const item = new vscode.TreeItem(
       displayLabel,
       vscode.TreeItemCollapsibleState.None
     );
-    item.description = element.status || "—";
-    item.iconPath = new vscode.ThemeIcon("symbol-property");
+
+    item.iconPath = new vscode.ThemeIcon("rocket");
+    item.tooltip = element.jobPath || element.name;
+    item.contextValue = "job";
+
     item.checkboxState = this.state.selected.has(element.id)
       ? vscode.TreeItemCheckboxState.Checked
       : vscode.TreeItemCheckboxState.Unchecked;
-    item.tooltip = `${element.jobPath || element.name} · ${element.status || "未知"}${element.build ? " " + element.build : ""}`;
-    item.contextValue = "job";
     item.id = element.id;
     return item;
   }

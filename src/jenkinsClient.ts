@@ -1,6 +1,7 @@
 import * as https from "https";
 import * as http from "http";
 import { Job, JobStatus, TreeNode } from "./types";
+import { t } from "./i18n";
 
 /** Live connection settings (read fresh on each call so the user can change them). */
 export interface JenkinsSettings {
@@ -56,9 +57,7 @@ export class JenkinsClient {
   private async requireSettings(): Promise<JenkinsSettings> {
     const s = await this.creds.readSettings();
     if (!s.url || !s.username || !s.apiToken) {
-      throw new Error(
-        "Jenkins 连接未配置：请点击侧边栏的齿轮按钮（或工具栏的🔌按钮）配置 Jenkins URL、用户名和 API Token。"
-      );
+      throw new Error(t("client.notConfigured"));
     }
     return s;
   }
@@ -85,7 +84,7 @@ export class JenkinsClient {
   ): Promise<http.Agent | https.Agent | undefined> {
     const useProxy = await this.creds.shouldUseProxy(targetUrl);
     if (!useProxy) {
-      this.log(`↺ 绕过代理: ${targetUrl}（匹配代理排除规则）`);
+      this.log(t("client.proxyBypass", { url: targetUrl }));
       return undefined;
     }
 
@@ -128,7 +127,7 @@ export class JenkinsClient {
             });
             callback(null, tlsSocket);
           } else {
-            callback(new Error(`代理 CONNECT 失败：HTTP ${res.statusCode}`));
+            callback(new Error(t("client.proxyConnectFailed", { status: res.statusCode || 0 })));
           }
         });
         req.on("error", (err) => callback(err));
@@ -230,26 +229,26 @@ export class JenkinsClient {
 
         let friendlyMsg: string;
         if (msg.includes("self-signed") || msg.includes("SELF_SIGNED_CERT") || code === "UNABLE_TO_VERIFY_LEAF_SIGNATURE" || code === "CERT_HAS_EXPIRED") {
-          friendlyMsg = `SSL 证书验证失败（${code || msg}）。请在配置中勾选「信任自签名证书」选项。`;
+          friendlyMsg = t("client.sslError", { detail: code || msg });
         } else if (code === "ENOTFOUND") {
-          friendlyMsg = `无法解析 Jenkins 服务器地址（${u.host}）。请检查 URL 是否正确，或检查 DNS/网络配置。`;
+          friendlyMsg = t("client.dnsNotFound", { host: u.host });
         } else if (code === "ECONNREFUSED") {
-          friendlyMsg = `连接被拒绝（${u.host}）。请检查 Jenkins 是否正在运行、端口是否正确。`;
+          friendlyMsg = t("client.connRefused", { host: u.host });
         } else if (code === "ETIMEDOUT" || code === "ECONNRESET") {
-          friendlyMsg = `连接 ${code === "ECONNRESET" ? "被重置" : "超时"}（${u.host}）。请检查网络连接或 Jenkins 服务器状态。`;
+          friendlyMsg = code === "ECONNRESET" ? t("client.connReset", { host: u.host }) : t("client.connTimeout", { host: u.host });
         } else if (code === "EAI_AGAIN") {
-          friendlyMsg = `DNS 解析失败（${u.host}）。请检查网络连接或代理配置。`;
+          friendlyMsg = t("client.dnsAgain", { host: u.host });
         } else if (msg.includes("代理") || msg.includes("proxy") || msg.includes("PROXY")) {
-          friendlyMsg = `代理连接失败：${msg}。请检查 VSCode 代理设置。`;
+          friendlyMsg = t("client.proxyFailed", { msg });
         } else {
-          friendlyMsg = `网络请求失败（${code || "未知错误"}）：${msg}。请检查网络连接、代理设置或 Jenkins 服务器状态。`;
+          friendlyMsg = t("client.networkError", { code: code || "unknown", msg });
         }
         reject(new Error(friendlyMsg));
       });
 
       req.on("timeout", () => {
         this.log(`✗ ${method} ${fullUrl} timeout (30s)`);
-        req.destroy(new Error(`请求 Jenkins 超时（30s）：${u.host}`));
+        req.destroy(new Error(t("client.requestTimeout", { host: u.host })));
       });
 
       if (body !== undefined) {
@@ -262,25 +261,19 @@ export class JenkinsClient {
   private async reqJson<T>(method: string, urlPath: string, query?: Record<string, string>): Promise<T> {
     const r = await this.req(method, urlPath, { query });
     if (r.status === 401 || r.status === 403) {
-      throw new Error(
-        `Jenkins 认证失败（HTTP ${r.status}）。请检查用户名和 API Token 是否正确。`
-      );
+      throw new Error(t("client.authFailed", { status: r.status }));
     }
     if (r.status === 503) {
-      throw new Error(
-        `代理服务器返回服务不可用（HTTP 503）。如果 Jenkins 是内网服务器，请在 VSCode 设置中添加「http.proxyExcludeUrls」规则来绕过代理访问 Jenkins。例如：添加 "http://your-jenkins-url/*" 到排除列表。`
-      );
+      throw new Error(t("client.proxy503"));
     }
     if (r.status >= 300 && r.status < 400) {
-      throw new Error(
-        `Jenkins 返回重定向（HTTP ${r.status}），请检查 URL 是否正确（可能缺少上下文路径或末尾斜杠）。`
-      );
+      throw new Error(t("client.redirect", { status: r.status }));
     }
     if (r.status >= 400) {
-      throw new Error(`Jenkins ${method} ${urlPath} → HTTP ${r.status}: ${r.body.slice(0, 300)}`);
+      throw new Error(t("client.httpError", { method, path: urlPath, status: r.status, body: r.body.slice(0, 300) }));
     }
     if (!r.body || !r.body.trim()) {
-      throw new Error(`Jenkins ${urlPath} 返回空响应（HTTP ${r.status}），可能未正确配置或无权限。`);
+      throw new Error(t("client.emptyResponse", { path: urlPath, status: r.status }));
     }
     try {
       return JSON.parse(r.body) as T;
@@ -288,8 +281,8 @@ export class JenkinsClient {
       const isHtml = r.body.trimStart().startsWith("<");
       throw new Error(
         isHtml
-          ? `Jenkins ${urlPath} 返回 HTML 而非 JSON（HTTP ${r.status}），通常表示认证失败或被重定向到登录页。请检查 API Token。`
-          : `Jenkins ${urlPath} 返回非 JSON（HTTP ${r.status}）：${r.body.slice(0, 200)}`
+          ? t("client.htmlResponse", { path: urlPath, status: r.status })
+          : t("client.notJson", { path: urlPath, status: r.status, body: r.body.slice(0, 200) })
       );
     }
   }
@@ -444,7 +437,7 @@ export class JenkinsClient {
     const body = hasParams ? new URLSearchParams(params).toString() : undefined;
     const r = await this.req("POST", path, { body });
     if (r.status >= 400) {
-      throw new Error(`触发 ${fullName} 失败：HTTP ${r.status} ${r.body.slice(0, 200)}`);
+      throw new Error(t("client.triggerFailed", { name: fullName, status: r.status, body: r.body.slice(0, 200) }));
     }
     const loc = r.headers["location"];
     return Array.isArray(loc) ? loc[0] : loc;
@@ -455,8 +448,34 @@ export class JenkinsClient {
     const path = `/job/${JenkinsClient.jobPath(fullName)}/${buildNumber}/stop`;
     const r = await this.req("POST", path);
     if (r.status >= 400 && r.status !== 404) {
-      throw new Error(`中止 ${fullName} #${buildNumber} 失败：HTTP ${r.status}`);
+      throw new Error(t("client.abortFailed", { name: fullName, build: buildNumber, status: r.status }));
     }
+  }
+
+  /** Get build status for polling completion. */
+  async getBuildStatus(
+    fullName: string,
+    buildNumber: number
+  ): Promise<{ result: string | null; building: boolean; duration: number; timestamp: number }> {
+    const path = `/job/${JenkinsClient.jobPath(fullName)}/${buildNumber}/api/json`;
+    return this.reqJson("GET", path, { tree: "result,building,duration,timestamp" });
+  }
+
+  /** Get console log text for a build (plain text, not JSON). */
+  async getConsoleText(fullName: string, buildNumber: number): Promise<string> {
+    const path = `/job/${JenkinsClient.jobPath(fullName)}/${buildNumber}/consoleText`;
+    const r = await this.req("GET", path);
+    if (r.status >= 400) {
+      throw new Error(t("client.logFailed", { name: fullName, build: buildNumber, status: r.status }));
+    }
+    return r.body;
+  }
+
+  /** Resolve a queue item URL to get the executable build number. */
+  async getQueueItem(queueUrl: string): Promise<{ executable?: { number: number } }> {
+    const u = new URL(queueUrl);
+    const apiPath = u.pathname.replace(/\/+$/, "") + "/api/json";
+    return this.reqJson("GET", apiPath, { tree: "executable[number]" });
   }
 
   /** Refresh status for the given cached jobs (re-lists all, returns the subset). */
@@ -516,18 +535,18 @@ function humanTime(ts: number): string {
   const diff = Date.now() - ts;
   const min = Math.floor(diff / 60000);
   if (min < 1) {
-    return "刚刚";
+    return t("time.justNow");
   }
   if (min < 60) {
-    return `${min} 分钟前`;
+    return t("time.minutesAgo", { n: min });
   }
   const h = Math.floor(min / 60);
   if (h < 24) {
-    return `${h} 小时前`;
+    return t("time.hoursAgo", { n: h });
   }
   const d = Math.floor(h / 24);
   if (d < 7) {
-    return `${d} 天前`;
+    return t("time.daysAgo", { n: d });
   }
   return new Date(ts).toLocaleDateString();
 }

@@ -5,8 +5,12 @@ import { WebviewProvider } from "./webviewProvider";
 import { StateService } from "./state";
 import { JenkinsSettings } from "./jenkinsClient";
 import { TreeNode } from "./types";
+import { initI18n, t, setLocale, onLocaleChange, getWebviewMessages } from "./i18n";
+import { Locale } from "./i18n/types";
 
 export function activate(context: vscode.ExtensionContext): void {
+  initI18n();
+
   const store = new GlobalStore(context);
 
   const credsProvider = {
@@ -75,11 +79,10 @@ export function activate(context: vscode.ExtensionContext): void {
     },
   };
 
-  const state = new StateService(store, credsProvider, context.extensionUri);
+  const state = new StateService(store, credsProvider, context.extensionUri, context.globalStorageUri);
   const tree = new SidebarTreeProvider(state);
   const webview = new WebviewProvider(context, state);
   state.attach(tree, webview);
-  let deleteInProgress = false;
 
   // Native sidebar tree (with checkboxes + multi-select for batch delete).
   const treeView = vscode.window.createTreeView<TreeNode>("jenkins-batch-trigger.explorer", {
@@ -102,6 +105,9 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     treeView.onDidChangeSelection((e) => {
       const now = Date.now();
+      if (e.selection.length > 0) {
+        webview.show();
+      }
       if (e.selection.length === 1) {
         const node = e.selection[0];
         if (node.type === "job" && node.id === lastClickId && now - lastClickTime < 500) {
@@ -118,7 +124,7 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Status bar: connection indicator.
   const status = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-  status.command = "jenkins-batch-trigger.openSettings";
+  status.command = "jenkins-batch-trigger.configConn";
   context.subscriptions.push(status);
   const updateStatus = async () => {
     const s = await credsProvider.readSettings();
@@ -126,8 +132,8 @@ export function activate(context: vscode.ExtensionContext): void {
       status.text = `$(server) Jenkins: ${s.url.replace(/^https?:\/\//, "")}`;
       status.tooltip = `${s.username || "?"}@${s.url}`;
     } else {
-      status.text = "$(warning) Jenkins: 未配置";
-      status.tooltip = "点击配置 Jenkins 连接（URL / 用户名 / API Token）";
+      status.text = t("status.notConfigured");
+      status.tooltip = t("status.notConfiguredTip");
     }
     status.show();
   };
@@ -137,10 +143,59 @@ export function activate(context: vscode.ExtensionContext): void {
       if (e.affectsConfiguration("jenkinsBatchTrigger")) {
         updateStatus();
       }
+      if (e.affectsConfiguration("jenkinsBatchTrigger.language")) {
+        const cfg = vscode.workspace.getConfiguration("jenkinsBatchTrigger");
+        setLocale((cfg.get<string>("language") as Locale) || "zh");
+      }
     })
   );
 
-  registerCommands(context, state, tree, webview, treeView);
+  // OutputChannel for action/poller logs.
+  const actionOutput = vscode.window.createOutputChannel("Pipeline Actions");
+  context.subscriptions.push(actionOutput);
+  state.poller.outputLogger = (msg) => actionOutput.appendLine(msg);
+  state.actionEngine.outputLogger = (msg) => actionOutput.appendLine(msg);
+
+  // Pipeline runtime status bar.
+  const pipelineStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);
+  pipelineStatus.command = "jenkins-batch-trigger.showActionOutput";
+  context.subscriptions.push(pipelineStatus);
+
+  const updatePipelineStatus = () => {
+    const p = state.poller;
+    const running = p.runningCount;
+    const queued = p.queuedCount;
+    const failed = p.failedCount;
+
+    if (running === 0 && queued === 0 && failed === 0) {
+      pipelineStatus.text = t("status.ready");
+      pipelineStatus.tooltip = t("status.readyTip");
+    } else {
+      const parts: string[] = [];
+      if (running > 0) parts.push(t("status.running", { n: running }));
+      if (queued > 0) parts.push(t("status.queued", { n: queued }));
+      if (failed > 0) parts.push(t("status.failed", { n: failed }));
+      const icon = failed > 0 ? "$(error)" : "$(sync~spin)";
+      pipelineStatus.text = `${icon} Pipeline: ${parts.join(" / ")}`;
+      pipelineStatus.tooltip = t("status.tooltip", { running, queued, failed });
+    }
+    pipelineStatus.show();
+  };
+
+  state.poller.onStatusChange = updatePipelineStatus;
+  updatePipelineStatus();
+
+  // Propagate locale changes to all UI surfaces.
+  context.subscriptions.push(
+    onLocaleChange(() => {
+      tree.refresh();
+      void updateStatus();
+      updatePipelineStatus();
+      webview.pushLocale(getWebviewMessages());
+    })
+  );
+
+  registerCommands(context, state, tree, webview, treeView, actionOutput);
 
   // Auto-open the batch runner panel on startup.
   webview.show();
@@ -151,7 +206,8 @@ function registerCommands(
   state: StateService,
   tree: SidebarTreeProvider,
   webview: WebviewProvider,
-  treeView: vscode.TreeView<TreeNode>
+  treeView: vscode.TreeView<TreeNode>,
+  actionOutput: vscode.OutputChannel
 ): void {
   let deleteInProgress = false;
   const subs = [
@@ -161,14 +217,14 @@ function registerCommands(
 
     vscode.commands.registerCommand("jenkins-batch-trigger.filterTree", async () => {
       const value = await vscode.window.showInputBox({
-        prompt: "输入过滤关键词（名称或路径）",
+        prompt: t("cmd.filterPrompt"),
         value: state.filterText,
-        placeHolder: "例如：deploy、team-a",
+        placeHolder: t("cmd.filterPlaceholder"),
         ignoreFocusOut: true,
       });
       if (value !== undefined) {
         state.setFilter(value);
-        treeView.description = value ? `过滤: ${value}` : undefined;
+        treeView.description = value ? t("cmd.filterDesc", { value }) : undefined;
       }
     }),
 
@@ -179,11 +235,10 @@ function registerCommands(
 
     // ---- Tree structure commands ----
 
-    // Create a top-level folder (right-click on empty sidebar area).
     vscode.commands.registerCommand("jenkins-batch-trigger.addRootFolder", async () => {
       const name = await vscode.window.showInputBox({
-        prompt: "新建文件夹名称",
-        placeHolder: "例如：支付线 / 每日发版",
+        prompt: t("cmd.newFolderPrompt"),
+        placeHolder: t("cmd.newFolderPlaceholder"),
         ignoreFocusOut: true,
       });
       if (name) {
@@ -191,11 +246,10 @@ function registerCommands(
       }
     }),
 
-    // Create a sub-folder (right-click on a folder node).
     vscode.commands.registerCommand("jenkins-batch-trigger.addSubFolder", async (node: TreeNode) => {
       const name = await vscode.window.showInputBox({
-        prompt: `在「${node.name}」下新建子文件夹`,
-        placeHolder: "输入文件夹名称",
+        prompt: t("cmd.newSubFolderPrompt", { name: node.name }),
+        placeHolder: t("cmd.newSubFolderPlaceholder"),
         ignoreFocusOut: true,
       });
       if (name) {
@@ -203,17 +257,14 @@ function registerCommands(
       }
     }),
 
-    // Add job nodes (right-click on a folder node or root).
     vscode.commands.registerCommand("jenkins-batch-trigger.addJobNodes", async (node?: TreeNode) => {
-      // node is undefined when triggered from view title; create at root level.
       const parentId = node && node.type === "folder" ? node.id : null;
       await state.addJobNodes(parentId);
     }),
 
-    // Rename a node.
     vscode.commands.registerCommand("jenkins-batch-trigger.renameNode", async (node: TreeNode) => {
       const name = await vscode.window.showInputBox({
-        prompt: "重命名",
+        prompt: t("cmd.renamePrompt"),
         value: node.name,
         ignoreFocusOut: true,
       });
@@ -222,8 +273,6 @@ function registerCommands(
       }
     }),
 
-    // Delete node(s). Uses treeView.selection to get all selected nodes so that
-    // multi-select delete only confirms once instead of once per node.
     vscode.commands.registerCommand("jenkins-batch-trigger.deleteNode", async () => {
       if (deleteInProgress) return;
       const nodes = treeView.selection;
@@ -234,10 +283,10 @@ function registerCommands(
         const ids = nodes.map((n) => n.id);
         const names = nodes.map((n) => n.name);
         const msg = nodes.length === 1
-          ? `确定删除「${names[0]}」？`
-          : `确定删除选中的 ${nodes.length} 个节点（${names.slice(0, 3).join("、")}${names.length > 3 ? "…" : ""}）？`;
-        const confirmed = await vscode.window.showWarningMessage(msg, "删除", "取消");
-        if (confirmed === "删除") {
+          ? t("cmd.deleteOne", { name: names[0] })
+          : t("cmd.deleteMany", { count: nodes.length, names: names.slice(0, 3).join(", ") + (names.length > 3 ? "…" : "") });
+        const confirmed = await vscode.window.showWarningMessage(msg, t("cmd.deleteBtn"), t("cmd.cancelBtn"));
+        if (confirmed === t("cmd.deleteBtn")) {
           state.deleteNodes(ids);
         }
       } finally {
@@ -245,21 +294,19 @@ function registerCommands(
       }
     }),
 
-    // Delete all currently checked (selected) job nodes.
     vscode.commands.registerCommand("jenkins-batch-trigger.deleteSelectedNodes", async () => {
       const selectedIds = [...state.selected];
       if (selectedIds.length === 0) {
-        void vscode.window.showInformationMessage("当前没有选中的节点。");
+        void vscode.window.showInformationMessage(t("cmd.noSelection"));
         return;
       }
-      const msg = `确定删除 ${selectedIds.length} 个选中的节点？`;
-      const confirmed = await vscode.window.showWarningMessage(msg, "删除", "取消");
-      if (confirmed === "删除") {
+      const msg = t("cmd.deleteSelected", { count: selectedIds.length });
+      const confirmed = await vscode.window.showWarningMessage(msg, t("cmd.deleteBtn"), t("cmd.cancelBtn"));
+      if (confirmed === t("cmd.deleteBtn")) {
         state.deleteNodes(selectedIds);
       }
     }),
 
-    // Refresh status of all jobs under a folder.
     vscode.commands.registerCommand("jenkins-batch-trigger.refreshNode", async (node: TreeNode) => {
       if (node.type === "folder") {
         await state.refreshNodeStatus(node.id);
@@ -276,78 +323,57 @@ function registerCommands(
 
     // ---- Settings ----
 
-    vscode.commands.registerCommand("jenkins-batch-trigger.openSettings", () =>
-      vscode.commands.executeCommand("workbench.action.openSettings", "jenkinsBatchTrigger")
-    ),
+    vscode.commands.registerCommand("jenkins-batch-trigger.openSettings", async () => {
+      const { SettingsPanel } = await import("./settingsPanel");
+      SettingsPanel.createOrShow(context, state);
+    }),
 
     vscode.commands.registerCommand("jenkins-batch-trigger.setApiToken", async () => {
       const token = await vscode.window.showInputBox({
-        prompt: "输入 Jenkins API Token",
+        prompt: t("cmd.tokenPrompt"),
         password: true,
-        placeHolder: "在 Jenkins → Configure User → API Token 中生成",
+        placeHolder: t("cmd.tokenPlaceholder"),
         ignoreFocusOut: true,
       });
       if (token !== undefined) {
         await context.secrets.store("apiToken", token);
-        void vscode.window.showInformationMessage("Jenkins API Token 已保存（SecretStorage）。");
+        void vscode.window.showInformationMessage(t("cmd.tokenSaved"));
       }
     }),
 
     vscode.commands.registerCommand("jenkins-batch-trigger.configConn", async () => {
-      const cfg = vscode.workspace.getConfiguration("jenkinsBatchTrigger");
-      const curUrl = cfg.get<string>("jenkinsUrl") || "";
-      const curUser = cfg.get<string>("username") || "";
-
-      // 1. Jenkins URL
-      const url = await vscode.window.showInputBox({
-        prompt: "Jenkins 服务器地址",
-        value: curUrl,
-        placeHolder: "https://jenkins.example.com（不要带末尾斜杠）",
-        ignoreFocusOut: true,
-      });
-      if (url === undefined) return;
-      await cfg.update("jenkinsUrl", url.trim(), vscode.ConfigurationTarget.Global);
-
-      // 2. Username
-      const username = await vscode.window.showInputBox({
-        prompt: "Jenkins 用户名",
-        value: curUser,
-        placeHolder: "登录用户名",
-        ignoreFocusOut: true,
-      });
-      if (username === undefined) return;
-      await cfg.update("username", username.trim(), vscode.ConfigurationTarget.Global);
-
-      // 3. API Token
-      const token = await vscode.window.showInputBox({
-        prompt: "Jenkins API Token",
-        password: true,
-        placeHolder: "在 Jenkins → Configure User → API Token 中生成",
-        ignoreFocusOut: true,
-      });
-      if (token === undefined) return;
-      if (token) {
-        await context.secrets.store("apiToken", token);
-      }
-
-      // 4. Trust self-signed cert
-      const trustCert = await vscode.window.showQuickPick(
-        ["否", "是"],
-        { title: "信任自签名证书？（内网 Jenkins 常用）", ignoreFocusOut: true }
-      );
-      if (trustCert) {
-        await cfg.update("trustSelfSignedCert", trustCert === "是", vscode.ConfigurationTarget.Global);
-      }
-
-      void vscode.window.showInformationMessage("Jenkins 连接配置已保存。");
+      const { SettingsPanel } = await import("./settingsPanel");
+      SettingsPanel.createOrShow(context, state);
     }),
 
     // Clear selection.
     vscode.commands.registerCommand("jenkins-batch-trigger.clearSelection", () => {
       state.clearSelection();
     }),
+
+    // ---- Action system ----
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.showActionOutput", () => {
+      actionOutput.show(true);
+    }),
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.toggleActions", async (node: TreeNode) => {
+      if (!node || node.type !== "job" || !node.jobPath) return;
+      const enabled = await state.toggleActions(node.jobPath);
+      void vscode.window.showInformationMessage(
+        enabled ? t("cmd.actionsEnabled", { name: node.name }) : t("cmd.actionsDisabled", { name: node.name })
+      );
+    }),
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.openActionsConfig", async (node?: TreeNode) => {
+      const { ActionsConfigPanel } = await import("./actionsConfigPanel");
+      ActionsConfigPanel.createOrShow(context, state, node?.jobPath);
+    }),
   ];
   context.subscriptions.push(...subs);
+
+  // Dispose the build poller on deactivation.
+  context.subscriptions.push({ dispose: () => state.poller.dispose() });
 }
 
 export function deactivate(): void {

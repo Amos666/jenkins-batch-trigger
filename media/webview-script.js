@@ -6,6 +6,13 @@
  * and provides batch trigger/abort/refresh actions.
  * ==================================================================== */
 
+let __i18n = {};
+function t(key, params) {
+  let s = __i18n[key] || key;
+  if (params) { for (const [k, v] of Object.entries(params)) { s = s.replace("{" + k + "}", String(v)); } }
+  return s;
+}
+
 const vscode = acquireVsCodeApi();
 let _rid = 0;
 const _pending = new Map();
@@ -28,6 +35,9 @@ window.addEventListener("message", (e) => {
   } else if (m && m.type === "log") {
     // Network request/response log from JenkinsClient.
     logMsg(m.msg, "info");
+  } else if (m && m.type === "locale") {
+    __i18n = m.messages || {};
+    render();
   } else if (m && m.type === "openConfig") {
     // Connection config is now handled by the sidebar settings button.
   }
@@ -37,7 +47,7 @@ const STATUS_LABEL = { running:"Running", success:"Success", failed:"Failed", un
 const BADGE = { running:"b-running", success:"b-success", failed:"b-failed", unstable:"b-unstable", aborted:"b-aborted", idle:"b-idle", unknown:"b-idle" };
 
 /* ============ 状态 ============ */
-let STATE = { selectedNodes: [], paramTemplates: [] };
+let STATE = { selectedNodes: [], paramTemplates: [], enabledPipelines: [] };
 let search = "";
 let statusFilter = "all";
 let params = [];
@@ -53,6 +63,11 @@ let jobParamMap = new Map();
 let expandedParamJobId = null;
 // Pipeline column display level: 0=job name only, 1=parent/job, 2=grandparent/parent/job
 let pipelineDisplayLevel = 0;
+// Timeout watchdog: tracks which jobs have timeout monitoring enabled.
+let timeoutWatchSet = new Set();
+let timeoutMinutes = 10;
+let timeoutStartTimeMap = new Map(); // nodeId -> Date.now() when first seen running
+let timeoutTimer = null;
 
 function applySnapshot(s) {
   if (!s) return;
@@ -70,11 +85,16 @@ function applySnapshot(s) {
     for (const id of [...jobParamMap.keys()]) {
       if (!newIds.has(id)) jobParamMap.delete(id);
     }
+    // Clean up timeout watch for removed jobs.
+    for (const id of [...timeoutWatchSet]) {
+      if (!newIds.has(id)) { timeoutWatchSet.delete(id); timeoutStartTimeMap.delete(id); }
+    }
     if (expandedParamJobId && !newIds.has(expandedParamJobId)) expandedParamJobId = null;
     prevSelectedIds = newIds;
     STATE.selectedNodes = s.selectedNodes;
   }
   if (s.paramTemplates) STATE.paramTemplates = s.paramTemplates;
+  if (s.enabledPipelines) STATE.enabledPipelines = s.enabledPipelines;
   render();
   renderParamTpl();
 }
@@ -94,9 +114,9 @@ function escapeHtml(s) {
   return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 function toast(msg) {
-  const t = document.getElementById("toast");
-  t.textContent = msg; t.classList.add("show");
-  setTimeout(() => t.classList.remove("show"), 1800);
+  const el = document.getElementById("toast");
+  el.textContent = msg; el.classList.add("show");
+  setTimeout(() => el.classList.remove("show"), 1800);
 }
 function logMsg(msg, type) {
   const p = document.getElementById("logPanel");
@@ -158,26 +178,39 @@ function render() {
   else {
     es.style.display = "block";
     es.textContent = STATE.selectedNodes.length === 0
-      ? "尚未选择 pipeline — 在左侧树中勾选 job 节点"
-      : "没有匹配的 pipeline";
+      ? t("webview.emptyNoSelection")
+      : t("webview.emptyNoMatch");
   }
   list.forEach((d) => {
     const tr = document.createElement("tr");
     tr.className = webviewChecked.has(d.id) ? "sel" : "";
     const st = d.status || "unknown";
     const checkedAttr = webviewChecked.has(d.id) ? "checked" : "";
+    const actionsChecked = STATE.enabledPipelines.includes(d.jobPath || d.name) ? "checked" : "";
+    const timeoutChecked = timeoutWatchSet.has(d.id) ? "checked" : "";
     const hasJobParams = jobParamMap.has(d.id);
-    const paramClass = hasJobParams ? "link param-btn has-params" : "link param-btn";
-    const paramLabel = hasJobParams ? "✎ 参数*" : "✎ 参数";
+    const globalParams = getTriggerParams();
+    const hasGlobalParams = globalParams && globalParams.some((p) => p[0] !== "");
+    let paramClass = "link param-btn";
+    let paramLabel = t("webview.paramBtn");
+    if (hasJobParams) {
+      paramClass = "link param-btn has-job-params";
+      paramLabel = t("webview.paramBtnSet");
+    } else if (hasGlobalParams) {
+      paramClass = "link param-btn has-params";
+      paramLabel = t("webview.paramBtnSet");
+    }
     tr.innerHTML =
       `<td class="col-check"><input type="checkbox" class="rowchk" data-id="${d.id}" ${checkedAttr}></td>` +
       `<td><div class="name" title="${d.jobPath || d.name}">${getPipelineDisplayLabel(d)}</div><div class="sub"><span class="folder-tag">${d.folder || d.jobPath || ""}</span></div></td>` +
       `<td><span class="badge ${BADGE[st] || "b-idle"}"><span class="sw"></span>${STATUS_LABEL[st] || "Unknown"}</span></td>` +
-      `<td>${d.queue > 0 ? `<span class="qbadge" title="${d.queue} 个构建在队列中等待">${d.queue} 排队</span>` : '<span style="color:var(--text-faint)">—</span>'}</td>` +
-      `<td>${d.build || "—"}</td><td>${d.dur || "—"}</td><td>${d.time || "—"}</td>` +
+      `<td>${d.queue > 0 ? `<span class="qbadge" title="${t("webview.queueTitle", {n: d.queue})}">${t("webview.queueBadge", {n: d.queue})}</span>` : '<span style="color:var(--text-faint)">—</span>'}</td>` +
+      `<td>${d.dur || "—"}</td><td>${d.time || "—"}</td>` +
       `<td><span class="link build-link" data-url="${jobBuildUrl(d)}" title="${jobBuildUrl(d)}">${d.build || "—"} ↗</span></td>` +
-      `<td><span class="${paramClass}" data-param="${d.id}" title="点击编辑专属参数">${paramLabel}</span></td>` +
-      `<td><span class="link" data-run="${d.id}">触发</span> · <span class="link" data-log="${d.id}">日志</span>${st === "running" ? ` · <span class="link warn" data-abort="${d.id}">中止</span>` : ""}</td>`;
+      `<td><span class="${paramClass}" data-param="${d.id}" title="${t("webview.editParamTitle")}">${paramLabel}</span></td>` +
+      `<td class="col-check"><input type="checkbox" class="tmchk" data-id="${d.id}" ${timeoutChecked}></td>` +
+      `<td class="col-check"><input type="checkbox" class="actchk" data-jobpath="${d.jobPath || d.name}" ${actionsChecked}></td>` +
+      `<td><span class="link" data-run="${d.id}">${t("webview.trigger")}</span> · <span class="link" data-log="${d.id}">${t("webview.log")}</span>${st === "running" ? ` · <span class="link warn" data-abort="${d.id}">${t("webview.abort")}</span>` : ""}</td>`;
     tbody.appendChild(tr);
 
     // Collapsible per-job parameter editor row.
@@ -190,18 +223,21 @@ function render() {
     if (expandedParamJobId === d.id && unsavedParamText !== null) {
       paramText = unsavedParamText;
     } else {
-      paramText = jobP ? JSON.stringify(jobP, null, 2) : "";
+      // Show effective params: per-job params if set, otherwise global batch params.
+      // This lets users see the real trigger params for this job at a glance.
+      const eff = getEffectiveParams(d.id);
+      paramText = (eff && Object.keys(eff).length > 0) ? JSON.stringify(eff, null, 2) : "";
     }
     // Escape HTML special chars so textarea content is not misparsed by the HTML parser.
     const paramTextEscaped = escapeHtml(paramText);
     paramTr.innerHTML =
-      `<td colspan="10"><div class="job-param-box">` +
-      `<textarea class="job-param-textarea" data-jobid="${d.id}" spellcheck="false" placeholder='该 job 专属参数（JSON），留空则使用批量参数。例：{ "BRANCH": "dev" }'>${paramTextEscaped}</textarea>` +
+      `<td colspan="11"><div class="job-param-box">` +
+      `<textarea class="job-param-textarea" data-jobid="${d.id}" spellcheck="false" placeholder='${t("webview.paramPlaceholder")}'>${paramTextEscaped}</textarea>` +
       `<div class="job-param-actions">` +
-      `<button class="btn sm" data-paramsave="${d.id}">保存</button>` +
-      `<button class="btn sm" data-paramclear="${d.id}">清除</button>` +
+      `<button class="btn sm" data-paramsave="${d.id}">${t("webview.save")}</button>` +
+      `<button class="btn sm" data-paramclear="${d.id}">${t("webview.clear")}</button>` +
       `</div></div>` +
-      `<div class="job-param-status" data-jobid="${d.id}">${hasJobParams ? "✓ 已设置专属参数（优先于批量参数）" : ""}</div>` +
+      `<div class="job-param-status" data-jobid="${d.id}">${hasJobParams ? t("webview.paramSet") : (paramText ? t("webview.paramInherited") : "")}</div>` +
       `</td>`;
     tbody.appendChild(paramTr);
   });
@@ -233,7 +269,7 @@ function render() {
   const runSel = checkedList.filter((d) => d.status === "running").length;
   const ab = document.getElementById("btnAbort");
   ab.disabled = runSel === 0;
-  ab.title = runSel > 0 ? ("中止 " + runSel + " 个运行中的 pipeline") : "选中的 pipeline 中无运行中的任务";
+  ab.title = runSel > 0 ? t("webview.abortTitle2", {n: runSel}) : t("webview.abortNoneTitle");
 }
 
 /* ============ Per-job 参数（优先于批量参数） ============ */
@@ -246,34 +282,34 @@ function saveJobParam(jobId) {
     jobParamMap.delete(jobId);
     if (statusEl) { statusEl.textContent = ""; statusEl.className = "job-param-status"; }
     ta.classList.remove("err");
-    toast("已清除该 job 的专属参数");
+    toast(t("webview.paramCleared"));
     render();
     return;
   }
   let obj;
   try { obj = JSON.parse(txt); } catch (e) {
-    if (statusEl) { statusEl.textContent = "✕ JSON 无效：" + e.message; statusEl.className = "job-param-status err"; }
+    if (statusEl) { statusEl.textContent = t("webview.paramInvalid", {error: e.message}); statusEl.className = "job-param-status err"; }
     ta.classList.add("err");
     return;
   }
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) {
-    if (statusEl) { statusEl.textContent = "✕ 应为 JSON 对象 { … }"; statusEl.className = "job-param-status err"; }
+    if (statusEl) { statusEl.textContent = t("webview.paramNotObj"); statusEl.className = "job-param-status err"; }
     ta.classList.add("err");
     return;
   }
   jobParamMap.set(jobId, obj);
-  if (statusEl) { statusEl.textContent = "✓ 已保存专属参数（优先于批量参数）"; statusEl.className = "job-param-status ok"; }
+  if (statusEl) { statusEl.textContent = t("webview.paramSaved"); statusEl.className = "job-param-status ok"; }
   ta.classList.remove("err");
-  toast("已保存该 job 的专属参数");
+  toast(t("webview.paramSavedToast"));
+  // Collapse the editor after successful save.
+  expandedParamJobId = null;
   render();
 }
 function clearJobParam(jobId) {
   jobParamMap.delete(jobId);
-  const ta = document.querySelector('.job-param-textarea[data-jobid="' + jobId + '"]');
-  if (ta) ta.value = "";
-  const statusEl = document.querySelector('.job-param-status[data-jobid="' + jobId + '"]');
-  if (statusEl) { statusEl.textContent = ""; statusEl.className = "job-param-status"; }
-  toast("已清除该 job 的专属参数");
+  // Collapse the editor after clear.
+  expandedParamJobId = null;
+  toast(t("webview.paramCleared"));
   render();
 }
 // Get effective params for a job: per-job params if set, otherwise global params.
@@ -291,15 +327,15 @@ function renderParamBtn() {
   document.getElementById("paramCount").textContent = params.length;
   const lbl = document.getElementById("paramTplLabel");
   if (activeParamTpl) lbl.textContent = activeParamTpl;
-  else lbl.textContent = params.length ? "自定义" : "未应用模板";
+  else lbl.textContent = params.length ? t("webview.custom") : t("webview.noTplApplied");
 }
 function paramsToObj() { const o = {}; params.forEach((p) => { if (p[0] !== "") o[p[0]] = p[1]; }); return o; }
 function objToParams(o) { return Object.keys(o || {}).map((k) => [k, String(o[k])]); }
 function setPjStatus(ok, msg) {
   const s = document.getElementById("pjStatus"), ta = document.getElementById("paramJson");
   if (!s) return;
-  if (ok) { s.textContent = "✓ 有效"; s.className = "pj-status ok"; if (ta) ta.classList.remove("err"); }
-  else { s.textContent = "✕ " + (msg || "JSON 无效"); s.className = "pj-status err"; if (ta) ta.classList.add("err"); }
+  if (ok) { s.textContent = t("webview.jsonValid"); s.className = "pj-status ok"; if (ta) ta.classList.remove("err"); }
+  else { s.textContent = "✕ " + (msg || t("webview.jsonInvalidShort")); s.className = "pj-status err"; if (ta) ta.classList.add("err"); }
 }
 function syncJsonFromParams() {
   const ta = document.getElementById("paramJson"); if (!ta) return;
@@ -310,7 +346,7 @@ function syncParamsFromJson() {
   const txt = ta.value.trim();
   if (txt === "") { params = []; setPjStatus(true); renderKv(); renderParamBtn(); return; }
   let obj; try { obj = JSON.parse(txt); } catch (e) { setPjStatus(false, e.message); return; }
-  if (!obj || typeof obj !== "object" || Array.isArray(obj)) { setPjStatus(false, "应为 JSON 对象 { … }"); return; }
+  if (!obj || typeof obj !== "object" || Array.isArray(obj)) { setPjStatus(false, t("webview.jsonNotObjShort")); return; }
   params = objToParams(obj); setPjStatus(true); renderKv(); renderParamBtn();
 }
 function onParamsChanged() { syncJsonFromParams(); renderParamBtn(); }
@@ -325,7 +361,7 @@ function getTriggerParams() {
 }
 function renderKv() {
   const box = document.getElementById("kvList");
-  box.innerHTML = params.length ? "" : '<div class="hint">暂无参数，点击「+ 添加参数」或选择上方模板。</div>';
+  box.innerHTML = params.length ? "" : '<div class="hint">' + t("webview.noParams") + '</div>';
   params.forEach((p, i) => {
     const row = document.createElement("div"); row.className = "kv-row";
     row.innerHTML = `<input class="k" value="${p[0]}" placeholder="KEY"><input value="${p[1]}" placeholder="VALUE"><span class="del">✕</span>`;
@@ -338,12 +374,27 @@ function renderKv() {
 function renderParamTpl() {
   const box = document.getElementById("paramTplList");
   if (!box) return;
-  box.innerHTML = STATE.paramTemplates.length ? "" : '<span class="hint" style="margin:0">暂无模板，配置参数后点「＋ 存为模板」。</span>';
-  STATE.paramTemplates.forEach((t) => {
+  box.innerHTML = STATE.paramTemplates.length ? "" : '<span class="hint" style="margin:0">' + t("webview.noTemplates") + '</span>';
+  STATE.paramTemplates.forEach((tpl) => {
     const c = document.createElement("span");
-    c.className = "chip" + (t.id === 0 ? " default" : "");
-    c.innerHTML = t.name + (t.id === 0 ? "" : ' <span class="del" data-ptdel="' + t.id + '">✕</span>');
+    const isDefault = tpl.id === 0;
+    const isActive = tpl.name === activeParamTpl;
+    c.className = "chip" + (isDefault ? " default" : "") + (isActive ? " on" : "");
+    c.innerHTML = tpl.name
+      + (isDefault ? ' <span class="save-def" data-ptsave="0" title="Save current params to Default">↻</span>' : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
     c.onclick = (e) => {
+      // Overwrite Default template with current params.
+      if (e.target.dataset.ptsave !== undefined) {
+        e.stopPropagation();
+        if (params.length === 0) { toast(t("webview.noParamsConfig")); return; }
+        rpc("overwriteDefaultTpl", { params: params.map((p) => p.slice()) }).then((r) => {
+          if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
+          activeParamTpl = tpl.name; onParamsChanged(); renderParamBtn();
+          toast(t("webview.tplOverwriteDefault"));
+        });
+        return;
+      }
+      // Delete template (non-default only).
       if (e.target.dataset.ptdel) {
         e.stopPropagation();
         rpc("deleteParamTpl", { id: +e.target.dataset.ptdel }).then((r) => {
@@ -351,8 +402,10 @@ function renderParamTpl() {
         });
         return;
       }
-      params = t.params.map((p) => p.slice()); renderKv();
-      activeParamTpl = t.name; onParamsChanged(); toast("已套用参数模板：" + t.name);
+      // Apply template: load its params and mark as active.
+      params = tpl.params.map((p) => p.slice()); renderKv();
+      activeParamTpl = tpl.name; onParamsChanged(); toast(t("webview.tplApplied", {name: tpl.name}));
+      rpc("saveActiveTpl", { name: tpl.name });
     };
     box.appendChild(c);
   });
@@ -373,6 +426,16 @@ document.getElementById("tbody").addEventListener("change", (e) => {
     else webviewChecked.delete(id);
     render();
   }
+  if (e.target.classList.contains("actchk")) {
+    const jobPath = e.target.dataset.jobpath;
+    rpc("toggleActions", { jobPath }).then((r) => { if (r) applySnapshot(r); });
+  }
+  if (e.target.classList.contains("tmchk")) {
+    const id = e.target.dataset.id;
+    if (e.target.checked) timeoutWatchSet.add(id);
+    else { timeoutWatchSet.delete(id); timeoutStartTimeMap.delete(id); }
+    ensureTimeoutTimer();
+  }
 });
 // Header checkAll: check/uncheck all visible rows.
 document.getElementById("checkAll").addEventListener("change", (e) => {
@@ -384,11 +447,29 @@ document.getElementById("checkAll").addEventListener("change", (e) => {
   }
   render();
 });
+// Header thPrePost: double-click to toggle Pre/Post Actions for all visible rows.
+document.getElementById("thPrePost").addEventListener("dblclick", () => {
+  const list = visibleData();
+  const jobPaths = list.map((d) => d.jobPath || d.name);
+  const allEnabled = list.length > 0 && list.every((d) => STATE.enabledPipelines.includes(d.jobPath || d.name));
+  rpc("setActionsBatch", { jobPaths, enabled: !allEnabled }).then((r) => { if (r) applySnapshot(r); });
+});
+// Header thTimeout: double-click to toggle timeout watch for all visible rows.
+document.getElementById("thTimeout").addEventListener("dblclick", () => {
+  const list = visibleData();
+  const allOn = list.length > 0 && list.every((d) => timeoutWatchSet.has(d.id));
+  list.forEach((d) => {
+    if (allOn) { timeoutWatchSet.delete(d.id); timeoutStartTimeMap.delete(d.id); }
+    else timeoutWatchSet.add(d.id);
+  });
+  ensureTimeoutTimer();
+  render();
+});
 // Pipeline column header: double-click to cycle display level (0=job, 1=parent/job, 2=grandparent/parent/job)
 document.getElementById("thPipeline").addEventListener("dblclick", () => {
   pipelineDisplayLevel = (pipelineDisplayLevel + 1) % 3;
-  const levelNames = ["仅 job 名称", "上级目录/job", "上上级/上级/job"];
-  toast("Pipeline 显示：" + levelNames[pipelineDisplayLevel]);
+  const levelNames = [t("webview.levelName"), t("webview.levelParent"), t("webview.levelGrand")];
+  toast(t("webview.pipelineDisplay", {level: levelNames[pipelineDisplayLevel]}));
   render();
 });
 document.getElementById("tbody").addEventListener("click", (e) => {
@@ -396,9 +477,9 @@ document.getElementById("tbody").addEventListener("click", (e) => {
   if (e.target.dataset.abort) abortOne(e.target.dataset.abort);
   if (e.target.dataset.log) {
     const d = STATE.selectedNodes.find((x) => x.id === e.target.dataset.log);
-    fire("openBuild", { url: d ? jobConsoleUrl(d) : "#" }); logMsg("打开 " + (d ? d.name : "") + " 的 console", "info");
+    fire("openBuild", { url: d ? jobConsoleUrl(d) : "#" }); logMsg(t("webview.openConsoleLog", {name: d ? d.name : ""}), "info");
   }
-  if (e.target.dataset.url) { fire("openBuild", { url: e.target.dataset.url }); logMsg("在浏览器打开构建页面：" + e.target.dataset.url, "info"); }
+  if (e.target.dataset.url) { fire("openBuild", { url: e.target.dataset.url }); logMsg(t("webview.openBrowserLog", {url: e.target.dataset.url}), "info"); }
   // Per-job param button: toggle inline editor.
   if (e.target.dataset.param) {
     const jobId = e.target.dataset.param;
@@ -416,8 +497,58 @@ document.getElementById("tbody").addEventListener("click", (e) => {
 });
 document.getElementById("btnClearLog").onclick = () => {
   document.getElementById("logPanel").innerHTML = "";
-  toast("日志已清除");
+  toast(t("webview.logCleared"));
 };
+document.getElementById("btnActionsConfig").onclick = () => {
+  fire("openActionsConfig");
+};
+
+/* ============ 超时看守 ============ */
+document.getElementById("btnTimeout").onclick = () => {
+  document.getElementById("timeoutInput").value = String(timeoutMinutes);
+  document.getElementById("timeoutOverlay").classList.add("show");
+  setTimeout(() => document.getElementById("timeoutInput").focus(), 50);
+};
+document.getElementById("btnTimeoutCancel").onclick = () => document.getElementById("timeoutOverlay").classList.remove("show");
+document.getElementById("btnTimeoutSave").onclick = () => {
+  const v = parseInt(document.getElementById("timeoutInput").value, 10);
+  if (!v || v <= 0) { toast(t("webview.timeoutInvalid")); return; }
+  timeoutMinutes = v;
+  document.getElementById("timeoutVal").textContent = v;
+  document.getElementById("timeoutOverlay").classList.remove("show");
+  toast(t("webview.timeoutSet", {n: v}));
+  ensureTimeoutTimer();
+};
+// Watchdog timer: runs every 10s while any job has timeout watch enabled.
+function ensureTimeoutTimer() {
+  if (timeoutTimer) { clearInterval(timeoutTimer); timeoutTimer = null; }
+  if (timeoutWatchSet.size > 0) {
+    timeoutTimer = setInterval(checkTimeouts, 10000);
+  }
+}
+async function checkTimeouts() {
+  const now = Date.now();
+  const limit = timeoutMinutes * 60 * 1000;
+  const toAbort = [];
+  for (const d of STATE.selectedNodes) {
+    if (!timeoutWatchSet.has(d.id)) { timeoutStartTimeMap.delete(d.id); continue; }
+    if (d.status === "running") {
+      if (!timeoutStartTimeMap.has(d.id)) timeoutStartTimeMap.set(d.id, now);
+      if (now - timeoutStartTimeMap.get(d.id) >= limit) toAbort.push(d);
+    } else {
+      timeoutStartTimeMap.delete(d.id);
+    }
+  }
+  if (toAbort.length === 0) return;
+  const nodeIds = toAbort.map((d) => d.id);
+  logMsg(t("webview.timeoutAborting", {count: nodeIds.length, n: timeoutMinutes}), "warn");
+  const r = await rpc("abort", { nodeIds });
+  if (r) applySnapshot(r);
+  toAbort.forEach((d) => {
+    timeoutStartTimeMap.delete(d.id);
+    logMsg(t("webview.timeoutAborted", {name: d.name}), "warn");
+  });
+}
 
 /* ============ 参数弹窗 ============ */
 document.getElementById("btnParams").onclick = () => {
@@ -429,8 +560,8 @@ document.getElementById("btnAddKv").onclick = () => { params.push(["", ""]); act
 
 document.getElementById("paramJson").addEventListener("input", syncParamsFromJson);
 document.getElementById("btnSaveParamTpl").onclick = () => {
-  if (params.length === 0) { toast("请先配置参数"); return; }
-  document.getElementById("paramTplSummary").innerHTML = "将保存 <b>" + params.length + "</b> 个参数：<br>" + params.map((p) => p[0] + "=" + p[1]).join("，");
+  if (params.length === 0) { toast(t("webview.noParamsConfig")); return; }
+  document.getElementById("paramTplSummary").innerHTML = t("webview.tplSummary", {count: params.length}) + "<br>" + params.map((p) => p[0] + "=" + p[1]).join("，");
   document.getElementById("paramTplName").value = "";
   document.getElementById("paramTplOverlay").classList.add("show");
   setTimeout(() => document.getElementById("paramTplName").focus(), 50);
@@ -438,48 +569,49 @@ document.getElementById("btnSaveParamTpl").onclick = () => {
 document.getElementById("btnParamTplCancel").onclick = () => document.getElementById("paramTplOverlay").classList.remove("show");
 document.getElementById("btnParamTplSave").onclick = () => {
   const name = document.getElementById("paramTplName").value.trim();
-  if (!name) { toast("请输入模板名称"); return; }
+  if (!name) { toast(t("webview.tplNameRequired")); return; }
   rpc("saveParamTpl", { name, params: params.map((p) => p.slice()) }).then((r) => {
     if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
     document.getElementById("paramTplOverlay").classList.remove("show");
     activeParamTpl = name; renderParamBtn();
-    toast("已保存参数模板：" + name); logMsg("新建参数模板 " + name, "ok");
+    toast(t("webview.tplSaved", {name})); logMsg(t("webview.tplCreated", {name}), "ok");
+    rpc("saveActiveTpl", { name });
   });
 };
 document.getElementById("btnParamSave").onclick = () => {
-  if (getTriggerParams() === null) { toast("参数 JSON 无效，请检查左侧编辑器"); return; }
+  if (getTriggerParams() === null) { toast(t("webview.paramJsonInvalid")); return; }
   document.getElementById("paramOverlay").classList.remove("show");
-  toast("已保存 " + params.length + " 个参数"); renderParamBtn();
+  toast(t("webview.paramsSaved", {count: params.length})); renderParamBtn();
 };
 
 /* ============ 触发（先预览真实参数，再确认） ============ */
 document.getElementById("btnTrigger").onclick = showTriggerPreview;
 function showTriggerPreview() {
   const list = checkedVisibleData();
-  if (list.length === 0) { toast("请先在左侧树中勾选并在列表中选中要触发的 pipeline"); return; }
+  if (list.length === 0) { toast(t("webview.noPipelineSelected")); return; }
   const tp = getTriggerParams();
-  if (tp === null) { toast("参数 JSON 无效，请先在「参数」中修正"); return; }
+  if (tp === null) { toast(t("webview.paramJsonInvalidFix")); return; }
   const names = list.map((d) => d.name);
-  const paramLines = tp.length ? tp.map((p) => p[0] + "=" + p[1]).join("\n") : "（无参数）";
+  const paramLines = tp.length ? tp.map((p) => p[0] + "=" + p[1]).join("\n") : t("webview.noParams2");
   // Build per-job params preview.
   const customJobs = list.filter((d) => jobParamMap.has(d.id));
   const customLines = customJobs.length
     ? customJobs.map((d) => "  • " + d.name + ": " + JSON.stringify(jobParamMap.get(d.id))).join("\n")
-    : "（无）";
+    : t("webview.none");
   document.getElementById("triggerPreviewText").value =
-`即将触发 ${list.length} 个 pipeline
+`${t("webview.previewHeader", {count: list.length})}
 ================================
 
-[公共参数] (随请求下发的真实值，来自 JSON 编辑器)
+${t("webview.previewCommon")}
 ${paramLines}
 
-[专属参数 pipeline (${customJobs.length})]
+${t("webview.previewCustom", {count: customJobs.length})}
 ${customLines}
 
-[目标 pipeline (${names.length})]
+${t("webview.previewTarget", {count: names.length})}
 ${names.map((n) => "  • " + n).join("\n")}
 
-> 确认后将立即下发触发请求。专属参数优先于公共参数。`;
+${t("webview.previewFooter")}`;
   document.getElementById("triggerOverlay").classList.add("show");
 }
 document.getElementById("btnTriggerCancel").onclick = () => document.getElementById("triggerOverlay").classList.remove("show");
@@ -487,9 +619,19 @@ document.getElementById("btnTriggerConfirm").onclick = async () => {
   document.getElementById("triggerOverlay").classList.remove("show");
   await doTrigger();
 };
+// Force a one-shot refresh 10s after any trigger, regardless of auto-refresh.
+let forceRefreshTimer = null;
+function scheduleForceRefresh() {
+  if (forceRefreshTimer) clearTimeout(forceRefreshTimer);
+  forceRefreshTimer = setTimeout(async () => {
+    forceRefreshTimer = null;
+    const r = await rpc("refresh", { mode: "all" });
+    if (r) applySnapshot(r);
+  }, 10000);
+}
 async function doTrigger() {
   const tp = getTriggerParams();
-  if (tp === null) { toast("参数 JSON 无效，已取消触发"); return; }
+  if (tp === null) { toast(t("webview.paramJsonInvalidCancel")); return; }
   const list = checkedVisibleData();
   const nodeIds = list.map((d) => d.id);
   const paramsObj = {}; tp.forEach((p) => { paramsObj[p[0]] = p[1]; });
@@ -498,25 +640,26 @@ async function doTrigger() {
   list.forEach((d) => {
     if (jobParamMap.has(d.id)) jobParams[d.id] = jobParamMap.get(d.id);
   });
-  toast("正在触发 " + nodeIds.length + " 个 pipeline…");
+  toast(t("webview.triggering", {count: nodeIds.length}));
   const r = await rpc("trigger", { nodeIds, params: paramsObj, jobParams });
   if (r) { applySnapshot(r); }
   if (r && r.errors && r.errors.length) {
-    toast("已触发，" + r.errors.length + " 个失败"); r.errors.forEach((e) => logMsg("触发失败：" + e, "err"));
+    toast(t("webview.triggeredWithErrors", {count: r.errors.length})); r.errors.forEach((e) => logMsg(t("webview.triggerFailedLog", {error: e}), "err"));
   } else {
-    toast("已批量触发 " + nodeIds.length + " 个 pipeline");
+    toast(t("webview.triggered", {count: nodeIds.length}));
   }
   list.forEach((d) => {
     const eff = getEffectiveParams(d.id);
-    const paramStr = eff ? Object.keys(eff).map((k) => k + "=" + eff[k]).join(", ") : "（无参数）";
-    const tag = jobParamMap.has(d.id) ? " [专属参数]" : "";
-    logMsg("触发 " + d.name + tag + " 参数:" + paramStr, "info");
+    const paramStr = eff ? Object.keys(eff).map((k) => k + "=" + eff[k]).join(", ") : t("webview.noParams3");
+    const tag = jobParamMap.has(d.id) ? t("webview.customTag") : "";
+    logMsg(t("webview.triggerLog", {name: d.name, tag, params: paramStr}), "info");
   });
+  scheduleForceRefresh();
 }
 async function triggerOne(nodeId) {
   const d = STATE.selectedNodes.find((x) => x.id === nodeId);
   if (!d) return;
-  toast("正在触发 " + d.name + "…");
+  toast(t("webview.triggeringOne", {name: d.name}));
   const tp = getTriggerParams() || [];
   const paramsObj = {}; tp.forEach((p) => { paramsObj[p[0]] = p[1]; });
   // Include per-job params if set.
@@ -525,53 +668,60 @@ async function triggerOne(nodeId) {
   const r = await rpc("trigger", { nodeIds: [nodeId], params: paramsObj, jobParams });
   if (r) applySnapshot(r);
   const eff = getEffectiveParams(nodeId);
-  const paramStr = eff ? Object.keys(eff).map((k) => k + "=" + eff[k]).join(", ") : "（无参数）";
-  const tag = jobParamMap.has(nodeId) ? " [专属参数]" : "";
-  toast("已触发 " + d.name); logMsg("触发 " + d.name + tag + " 参数:" + paramStr, "info");
+  const paramStr = eff ? Object.keys(eff).map((k) => k + "=" + eff[k]).join(", ") : t("webview.noParams3");
+  const tag = jobParamMap.has(nodeId) ? t("webview.customTag") : "";
+  toast(t("webview.triggeredOne", {name: d.name})); logMsg(t("webview.triggerLog", {name: d.name, tag, params: paramStr}), "info");
+  scheduleForceRefresh();
 }
 
 /* ============ 批量中止 ============ */
 document.getElementById("btnAbort").onclick = abortSelected;
 async function abortSelected() {
   const list = checkedVisibleData().filter((d) => d.status === "running");
-  if (list.length === 0) { toast("选中的 pipeline 中没有正在运行 (Running) 的任务"); return; }
+  if (list.length === 0) { toast(t("webview.abortNone")); return; }
   const nodeIds = list.map((d) => d.id);
-  toast("正在中止 " + nodeIds.length + " 个运行中的 pipeline…");
+  toast(t("webview.aborting", {count: nodeIds.length}));
   const r = await rpc("abort", { nodeIds });
   if (r) applySnapshot(r);
-  toast("已批量中止 " + nodeIds.length + " 个运行中的 pipeline");
-  list.forEach((d) => logMsg("中止 " + d.name, "warn"));
+  toast(t("webview.aborted2", {count: nodeIds.length}));
+  list.forEach((d) => logMsg(t("webview.abortLog", {name: d.name}), "warn"));
 }
 async function abortOne(nodeId) {
   const d = STATE.selectedNodes.find((x) => x.id === nodeId);
-  if (!d || d.status !== "running") { toast(d ? (d.name + " 当前不是运行中，无法中止") : "pipeline 不存在"); return; }
+  if (!d || d.status !== "running") { toast(d ? t("webview.notRunning", {name: d.name}) : t("webview.pipelineNotExist")); return; }
   const r = await rpc("abort", { nodeIds: [nodeId] });
   if (r) applySnapshot(r);
-  toast("已中止 " + d.name); logMsg("中止 " + d.name, "warn");
+  toast(t("webview.abortedOne", {name: d.name})); logMsg(t("webview.abortLog", {name: d.name}), "warn");
 }
 
 /* ============ 刷新（手动+自动） ============ */
 document.getElementById("btnRefresh").onclick = doRefresh;
 // Manual refresh: refresh ALL jobs currently in the list (regardless of status).
 async function doRefresh() {
-  toast("正在刷新状态…");
+  toast(t("webview.refreshing"));
   const r = await rpc("refresh", { mode: "all" });
   if (r) applySnapshot(r);
-  toast("已刷新状态");
+  toast(t("webview.refreshed"));
 }
 let autoTimer = null;
-// Auto refresh: refresh non-terminal jobs (running, unknown) AND terminal jobs
-// that still have queue > 0 (queued). Terminal states with no queue are skipped.
+// Auto refresh: only fires the RPC when there's at least one job that is
+// non-terminal (running, idle, unknown) or has queue > 0. If everything is
+// in a terminal state with no queue, the tick is skipped entirely.
+const TERMINAL_STATES = new Set(["success", "failed", "unstable", "aborted"]);
 async function doAutoRefresh() {
+  const needsRefresh = STATE.selectedNodes.some(
+    (d) => !TERMINAL_STATES.has(d.status) || (d.queue > 0)
+  );
+  if (!needsRefresh) return;
   const r = await rpc("refresh", { mode: "nonTerminal" });
   if (r) applySnapshot(r);
 }
 document.getElementById("autoChk").addEventListener("change", (e) => {
-  if (e.target.checked) { const s = +document.getElementById("autoInt").value; autoTimer = setInterval(doAutoRefresh, s * 1000); toast("自动刷新已开启（每 " + s + " 秒）"); }
-  else { clearInterval(autoTimer); autoTimer = null; toast("自动刷新已关闭"); }
+  if (e.target.checked) { const s = +document.getElementById("autoInt").value; autoTimer = setInterval(doAutoRefresh, s * 1000); toast(t("webview.autoRefreshOn", {n: s})); }
+  else { clearInterval(autoTimer); autoTimer = null; toast(t("webview.autoRefreshOff")); }
 });
 document.getElementById("autoInt").addEventListener("change", (e) => {
-  if (document.getElementById("autoChk").checked) { clearInterval(autoTimer); const s = +e.target.value; autoTimer = setInterval(doAutoRefresh, s * 1000); toast("间隔改为每 " + s + " 秒"); }
+  if (document.getElementById("autoChk").checked) { clearInterval(autoTimer); const s = +e.target.value; autoTimer = setInterval(doAutoRefresh, s * 1000); toast(t("webview.intervalChanged", {n: s})); }
 });
 
 /* ============ 日志面板（可拖拽调整高度） ============ */
@@ -588,11 +738,11 @@ document.getElementById("logToggle").onclick = () => {
   if (logCollapsed) {
     logPanel.classList.add("collapsed");
     logResizer.classList.add("collapsed");
-    document.getElementById("logToggle").textContent = "▸ 活动日志";
+    document.getElementById("logToggle").textContent = t("webview.logExpand");
   } else {
     logPanel.classList.remove("collapsed");
     logResizer.classList.remove("collapsed");
-    document.getElementById("logToggle").textContent = "▾ 活动日志";
+    document.getElementById("logToggle").textContent = t("webview.logCollapse");
   }
 };
 
@@ -636,8 +786,53 @@ document.addEventListener("mouseup", () => {
   }
 });
 
+/* ============ 列宽拖动 ============ */
+(function initColResize() {
+  const table = document.querySelector(".tablewrap table");
+  if (!table) return;
+  const ths = table.querySelectorAll("thead th");
+  ths.forEach((th) => {
+    const resizer = document.createElement("div");
+    resizer.className = "col-resizer";
+    th.appendChild(resizer);
+    let startX, startW;
+    resizer.addEventListener("mousedown", (e) => {
+      e.preventDefault(); e.stopPropagation();
+      startX = e.clientX;
+      startW = th.offsetWidth;
+      resizer.classList.add("dragging");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
+      const onMove = (ev) => {
+        const w = Math.max(30, startW + ev.clientX - startX);
+        th.style.width = w + "px";
+      };
+      const onUp = () => {
+        resizer.classList.remove("dragging");
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        document.removeEventListener("mousemove", onMove);
+        document.removeEventListener("mouseup", onUp);
+      };
+      document.addEventListener("mousemove", onMove);
+      document.addEventListener("mouseup", onUp);
+    });
+  });
+})();
+
 /* ============ 初始化 ============ */
 (async function init() {
   const cfg = await rpc("load", {});
   applySnapshot(cfg);
+  if (cfg.activeTpl) {
+    const tpl = STATE.paramTemplates.find((t) => t.name === cfg.activeTpl);
+    if (tpl) {
+      params = tpl.params.map((p) => p.slice());
+      activeParamTpl = tpl.name;
+      renderKv();
+      renderParamBtn();
+      renderParamTpl();
+      syncJsonFromParams();
+    }
+  }
 })();

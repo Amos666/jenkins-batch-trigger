@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import * as fs from "fs";
 import * as path from "path";
+import { t } from "./i18n";
 
 /**
  * Builds the CENTER-ONLY webview HTML. The sidebar is the native VSCode tree.
@@ -47,6 +48,12 @@ ${styleContent}
 /* tablewrap takes remaining space and shrinks when log panel grows.
    min-height:0 is required so flex can shrink it below its content height. */
 .tablewrap{flex:1 1 0;min-height:0;overflow:auto;}
+/* Resizable columns */
+table{table-layout:fixed;width:100%;}
+th{position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+th .col-resizer{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;user-select:none;}
+th .col-resizer:hover,th .col-resizer.dragging{background:var(--accent,#4fc3f7);opacity:0.6;}
+td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* Per-job parameter inline editor */
 tr.param-row{display:none;}
 tr.param-row.show{display:table-row;}
@@ -64,6 +71,9 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .link.param-btn{cursor:pointer;padding:2px 6px;border-radius:3px;}
 .link.param-btn:hover{background:rgba(255,255,255,0.08);}
 .link.param-btn.has-params{color:var(--accent,#4fc3f7);font-weight:600;}
+.link.param-btn.has-job-params{color:var(--red,#f48771);font-weight:600;}
+.tpl-saved .chip .save-def{margin-left:5px;color:var(--accent,#4fc3f7);cursor:pointer;font-size:12px;opacity:.7;}
+.tpl-saved .chip .save-def:hover{opacity:1;}
 /* Resizable log panel — uses a draggable resizer bar instead of CSS resize
    because resize:vertical does not work reliably on flex column children.
    Override ALL conflicting wireframe properties (display:none, max-height:110px). */
@@ -83,9 +93,9 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 <div class="app">
   <div class="center">
     <div class="toolbar">
-      <div class="search"><span style="color:var(--text-dim)">🔍</span><input id="searchInput" placeholder="按名称/folder 筛选 pipeline…" /></div>
+      <div class="search"><span style="color:var(--text-dim)">🔍</span><input id="searchInput" placeholder="${t("webview.html.searchPlaceholder")}" /></div>
       <div class="chips" id="statusChips">
-        <span class="chip on" data-st="all">全部</span>
+        <span class="chip on" data-st="all">${t("webview.html.chipAll")}</span>
         <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span>Running</span>
         <span class="chip" data-st="success"><span class="sw" style="background:var(--green)"></span>Success</span>
         <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span>Failed</span>
@@ -93,98 +103,112 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
         <span class="chip" data-st="aborted"><span class="sw" style="background:var(--gray)"></span>Aborted</span>
       </div>
       <div class="divider"></div>
-      <div class="autoref"><label><input type="checkbox" id="autoChk" /> 自动刷新</label>
+      <div class="autoref"><label><input type="checkbox" id="autoChk" /> ${t("webview.html.autoRefresh")}</label>
         <select id="autoInt"><option value="5">5s</option><option value="10" selected>10s</option><option value="30">30s</option><option value="60">1m</option></select>
       </div>
       <div class="spacer"></div>
-      <button class="btn" id="btnParams" title="点击配置批量触发参数">⚙ 参数 · <span id="paramTplLabel">未应用模板</span> <span id="paramCount" class="pcount">0</span></button>
-      <button class="btn primary" id="btnTrigger">▶ 批量触发</button>
-      <button class="btn danger" id="btnAbort" title="中止选中的运行中 pipeline">⏹ 批量中止</button>
-      <button class="btn primary icon" id="btnRefresh" title="立即刷新状态">⟳ 刷新</button>
+      <button class="btn" id="btnParams" title="${t("webview.html.paramsTitle")}">${t("webview.html.paramsBtn")} <span id="paramTplLabel">${t("webview.html.noTpl")}</span> <span id="paramCount" class="pcount">0</span></button>
+      <button class="btn primary" id="btnTrigger">${t("webview.html.triggerBtn")}</button>
+      <button class="btn danger" id="btnAbort" title="${t("webview.html.abortTitle")}">${t("webview.html.abortBtn")}</button>
+      <button class="btn primary icon" id="btnRefresh" title="${t("webview.html.refreshTitle")}">${t("webview.html.refreshBtn")}</button>
+      <button class="btn" id="btnTimeout" title="${t("webview.html.timeoutTitle")}">⏱ ${t("webview.html.timeoutBtn")} <span id="timeoutVal">10</span>m</button>
+      <button class="btn" id="btnActionsConfig" title="${t("webview.html.actionsConfigTitle")}">⚡ ${t("webview.html.actionsConfigBtn")}</button>
     </div>
     <div class="tablewrap">
       <table>
         <thead><tr>
           <th class="col-check"><input type="checkbox" id="checkAll" /></th>
-          <th id="thPipeline" title="双击切换名称显示层级">Pipeline</th><th>状态</th>
-          <th title="该 job 当前在 Jenkins 构建队列中等待的数量">队列</th>
-          <th>上次构建</th><th>耗时</th><th>最近运行</th>
-          <th title="点击在浏览器打开该次构建的真实页面">当前构建</th>
-          <th title="点击展开编辑该 job 的专属参数（优先于批量参数）">参数</th>
-          <th>操作</th>
+          <th id="thPipeline" title="${t("webview.html.thNameTitle")}">Pipeline</th><th>${t("webview.html.thStatus")}</th>
+          <th title="${t("webview.html.thQueueTitle")}">${t("webview.html.thQueue")}</th>
+          <th>${t("webview.html.thDuration")}</th><th>${t("webview.html.thLastRun")}</th>
+          <th title="${t("webview.html.thBuildTitle")}">${t("webview.html.thBuild")}</th>
+          <th title="${t("webview.html.thParamTitle")}">${t("webview.html.thParam")}</th>
+          <th id="thTimeout" title="${t("webview.html.thTimeoutTitle")}">${t("webview.html.thTimeout")}</th>
+          <th id="thPrePost" title="${t("webview.html.thActionsToggleTitle")}">${t("webview.html.actionsConfigBtn")}</th>
+          <th>${t("webview.html.thActions")}</th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
-      <div class="empty-state" id="emptyState" style="display:none">没有匹配的 pipeline</div>
+      <div class="empty-state" id="emptyState" style="display:none">${t("webview.html.empty")}</div>
     </div>
     <div class="actionbar">
-      <span class="sel">已选 <b id="selCount">0</b> / <span id="totalCount">0</span></span>
-      <span class="sel logtoggle" id="logToggle">▾ 活动日志</span>
+      <span class="sel">${t("webview.html.selected")} <b id="selCount">0</b> / <span id="totalCount">0</span></span>
+      <span class="sel logtoggle" id="logToggle">${t("webview.html.logToggle")}</span>
       <div class="spacer"></div>
-      <button class="btn" id="btnClearLog">清除日志</button>
+      <button class="btn" id="btnClearLog">${t("webview.html.clearLog")}</button>
     </div>
-    <div class="log-resizer" id="logResizer" title="拖拽调整日志面板高度"></div>
+    <div class="log-resizer" id="logResizer" title="${t("webview.html.resizerTitle")}"></div>
     <div class="logpanel" id="logPanel"></div>
   </div>
 </div>
 
-<!-- 参数编辑 Modal（左 JSON 权威 + 右 KV 速编） -->
 <div class="overlay" id="paramOverlay">
   <div class="modal wide">
-    <h3>⚙ 批量触发参数</h3>
+    <h3>${t("webview.html.paramModalTitle")}</h3>
     <div class="body">
-      <div class="hint">左侧 <b>JSON</b> 为<strong>最终下发参数</strong>（可直接编辑，触发以此为准）；右侧键值对速编用于辅助构建，改动实时同步到左侧。模板可一键填充。</div>
+      <div class="hint">${t("webview.html.paramModalHint")}</div>
       <div class="tpl-chips">
-        <span style="color:var(--text-dim);font-size:11px;align-self:center;">参数模板：</span>
-        <button class="btn sm" id="btnSaveParamTpl" style="margin-left:auto">＋ 存为模板</button>
+        <span style="color:var(--text-dim);font-size:11px;align-self:center;">${t("webview.html.tplLabel")}</span>
+        <button class="btn sm" id="btnSaveParamTpl" style="margin-left:auto">${t("webview.html.saveTpl")}</button>
       </div>
       <div class="tpl-saved" id="paramTplList"></div>
       <div class="param-split">
         <div class="param-json">
-          <div class="pj-head"><span>最终参数 (JSON) <span class="tag">· 触发以此为准</span></span><span class="pj-status ok" id="pjStatus">✓ 有效</span></div>
+          <div class="pj-head"><span>${t("webview.html.jsonHead")} <span class="tag">${t("webview.html.jsonTag")}</span></span><span class="pj-status ok" id="pjStatus">${t("webview.jsonValid")}</span></div>
           <textarea class="pj-text" id="paramJson" spellcheck="false" placeholder='{ "BRANCH": "main", "ENVIRONMENT": "staging" }'></textarea>
         </div>
         <div class="param-kv">
-          <div class="pj-head"><span>键值对速编</span><span class="tag">· 辅助</span></div>
+          <div class="pj-head"><span>${t("webview.html.kvHead")}</span><span class="tag">${t("webview.html.kvTag")}</span></div>
           <div id="kvList"></div>
-          <div class="kvfoot"><button class="btn sm" id="btnAddKv">+ 添加参数</button></div>
+          <div class="kvfoot"><button class="btn sm" id="btnAddKv">${t("webview.html.addParam")}</button></div>
         </div>
       </div>
     </div>
     <div class="foot">
-      <button class="btn" id="btnParamCancel">取消</button>
-      <button class="btn primary" id="btnParamSave">保存参数</button>
+      <button class="btn" id="btnParamCancel">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnParamSave">${t("webview.html.saveParams")}</button>
     </div>
   </div>
 </div>
 
-<!-- 保存参数模板 Modal -->
 <div class="overlay" id="paramTplOverlay">
   <div class="modal">
-    <h3>＋ 保存参数模板</h3>
+    <h3>${t("webview.html.tplModalTitle")}</h3>
     <div class="body">
       <div class="summary-box" id="paramTplSummary"></div>
-      <div class="field"><label>模板名称</label><input type="text" id="paramTplName" placeholder="例如：生产部署 / 灰度发布" /></div>
-      <div class="hint">保存当前参数键值对为模板，后续在「参数」弹窗中可一键套用或删除。</div>
+      <div class="field"><label>${t("webview.html.tplNameLabel")}</label><input type="text" id="paramTplName" placeholder="${t("webview.html.tplNamePlaceholder")}" /></div>
+      <div class="hint">${t("webview.html.tplHint")}</div>
     </div>
     <div class="foot">
-      <button class="btn" id="btnParamTplCancel">取消</button>
-      <button class="btn primary" id="btnParamTplSave">保存模板</button>
+      <button class="btn" id="btnParamTplCancel">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnParamTplSave">${t("webview.html.saveTplBtn")}</button>
     </div>
   </div>
 </div>
 
-<!-- 触发参数预览 / 确认 Modal -->
 <div class="overlay" id="triggerOverlay">
   <div class="modal">
-    <h3>▶ 确认批量触发</h3>
+    <h3>${t("webview.html.triggerModalTitle")}</h3>
     <div class="body">
-      <div class="hint">以下为本次触发将下发的<strong>真实参数</strong>与目标 pipeline，请确认无误后点击「确认触发」。</div>
+      <div class="hint">${t("webview.html.triggerHint")}</div>
       <textarea class="prev" id="triggerPreviewText" readonly></textarea>
     </div>
     <div class="foot">
-      <button class="btn" id="btnTriggerCancel">取消</button>
-      <button class="btn primary" id="btnTriggerConfirm">确认触发</button>
+      <button class="btn" id="btnTriggerCancel">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnTriggerConfirm">${t("webview.triggerConfirm")}</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="timeoutOverlay">
+  <div class="modal">
+    <h3>${t("webview.html.timeoutModalTitle")}</h3>
+    <div class="body">
+      <div class="field"><label>${t("webview.html.timeoutModalLabel")}</label><input type="number" id="timeoutInput" min="1" step="1" /> <span style="color:var(--text-dim)">${t("webview.html.timeoutModalUnit")}</span></div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnTimeoutCancel">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnTimeoutSave">${t("webview.html.timeoutModalSave")}</button>
     </div>
   </div>
 </div>
