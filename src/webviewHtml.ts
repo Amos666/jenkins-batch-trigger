@@ -93,122 +93,124 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 <div class="app">
   <div class="center">
     <div class="toolbar">
-      <div class="search"><span style="color:var(--text-dim)">🔍</span><input id="searchInput" placeholder="${t("webview.html.searchPlaceholder")}" /></div>
+      <div class="search"><span style="color:var(--text-dim)">🔍</span><input id="searchInput" data-i18n-placeholder="webview.html.searchPlaceholder" placeholder="${t("webview.html.searchPlaceholder")}" /></div>
       <div class="chips" id="statusChips">
-        <span class="chip on" data-st="all">${t("webview.html.chipAll")}</span>
-        <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span>Running</span>
-        <span class="chip" data-st="success"><span class="sw" style="background:var(--green)"></span>Success</span>
-        <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span>Failed</span>
-        <span class="chip" data-st="unstable"><span class="sw" style="background:var(--yellow)"></span>Unstable</span>
-        <span class="chip" data-st="aborted"><span class="sw" style="background:var(--gray)"></span>Aborted</span>
+        <span class="chip on" data-st="all" data-i18n="webview.html.chipAll">${t("webview.html.chipAll")}</span>
+        <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span><span data-i18n="webview.status.running">${t("webview.status.running")}</span></span>
+        <span class="chip" data-st="success"><span class="sw" style="background:var(--green)"></span><span data-i18n="webview.status.success">${t("webview.status.success")}</span></span>
+        <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span><span data-i18n="webview.status.failed">${t("webview.status.failed")}</span></span>
+        <span class="chip" data-st="unstable"><span class="sw" style="background:var(--yellow)"></span><span data-i18n="webview.status.unstable">${t("webview.status.unstable")}</span></span>
+        <span class="chip" data-st="aborted"><span class="sw" style="background:var(--gray)"></span><span data-i18n="webview.status.aborted">${t("webview.status.aborted")}</span></span>
       </div>
       <div class="divider"></div>
-      <div class="autoref"><label><input type="checkbox" id="autoChk" /> ${t("webview.html.autoRefresh")}</label>
+      <div class="autoref"><label><input type="checkbox" id="autoChk" /> <span data-i18n="webview.html.autoRefresh">${t("webview.html.autoRefresh")}</span></label>
         <select id="autoInt"><option value="5">5s</option><option value="10" selected>10s</option><option value="30">30s</option><option value="60">1m</option></select>
       </div>
       <div class="spacer"></div>
-      <button class="btn" id="btnParams" title="${t("webview.html.paramsTitle")}">${t("webview.html.paramsBtn")} <span id="paramTplLabel">${t("webview.html.noTpl")}</span> <span id="paramCount" class="pcount">0</span></button>
-      <button class="btn primary" id="btnTrigger">${t("webview.html.triggerBtn")}</button>
-      <button class="btn danger" id="btnAbort" title="${t("webview.html.abortTitle")}">${t("webview.html.abortBtn")}</button>
-      <button class="btn primary icon" id="btnRefresh" title="${t("webview.html.refreshTitle")}">${t("webview.html.refreshBtn")}</button>
-      <button class="btn" id="btnTimeout" title="${t("webview.html.timeoutTitle")}">⏱ ${t("webview.html.timeoutBtn")} <span id="timeoutVal">10</span>m</button>
-      <button class="btn" id="btnActionsConfig" title="${t("webview.html.actionsConfigTitle")}">⚡ ${t("webview.html.actionsConfigBtn")}</button>
+      <button class="btn" id="btnParams" data-i18n-title="webview.html.paramsTitle" title="${t("webview.html.paramsTitle")}"><span data-i18n="webview.html.paramsBtn">${t("webview.html.paramsBtn")}</span> <span id="paramTplLabel">${t("webview.html.noTpl")}</span> <span id="paramCount" class="pcount">0</span></button>
+      <button class="btn primary" id="btnTrigger" data-i18n="webview.html.triggerBtn">${t("webview.html.triggerBtn")}</button>
+      <button class="btn danger" id="btnAbort" data-i18n-title="webview.html.abortTitle" data-i18n="webview.html.abortBtn" title="${t("webview.html.abortTitle")}">${t("webview.html.abortBtn")}</button>
+      <button class="btn primary icon" id="btnRefresh" data-i18n-title="webview.html.refreshTitle" data-i18n="webview.html.refreshBtn" title="${t("webview.html.refreshTitle")}">${t("webview.html.refreshBtn")}</button>
+      <button class="btn" id="btnTimeout" data-i18n-title="webview.html.timeoutTitle" title="${t("webview.html.timeoutTitle")}">⏱ <span data-i18n="webview.html.timeoutBtn">${t("webview.html.timeoutBtn")}</span> <span id="timeoutVal">10</span>m</button>
+      <button class="btn" id="btnActionsConfig" data-i18n-title="webview.html.actionsConfigTitle" title="${t("webview.html.actionsConfigTitle")}">⚡ <span data-i18n="webview.html.actionsConfigBtn">${t("webview.html.actionsConfigBtn")}</span></button>
     </div>
     <div class="tablewrap">
       <table>
         <thead><tr>
           <th class="col-check"><input type="checkbox" id="checkAll" /></th>
-          <th id="thPipeline" title="${t("webview.html.thNameTitle")}">Pipeline</th><th>${t("webview.html.thStatus")}</th>
-          <th title="${t("webview.html.thQueueTitle")}">${t("webview.html.thQueue")}</th>
-          <th>${t("webview.html.thDuration")}</th><th>${t("webview.html.thLastRun")}</th>
-          <th title="${t("webview.html.thBuildTitle")}">${t("webview.html.thBuild")}</th>
-          <th title="${t("webview.html.thParamTitle")}">${t("webview.html.thParam")}</th>
-          <th id="thTimeout" title="${t("webview.html.thTimeoutTitle")}">${t("webview.html.thTimeout")}</th>
-          <th id="thPrePost" title="${t("webview.html.thActionsToggleTitle")}">${t("webview.html.actionsConfigBtn")}</th>
-          <th>${t("webview.html.thActions")}</th>
+          <th id="thPipeline" data-i18n-title="webview.html.thNameTitle" title="${t("webview.html.thNameTitle")}"><span data-i18n="webview.html.thPipeline">${t("webview.html.thPipeline")}</span></th><th><span data-i18n="webview.html.thStatus">${t("webview.html.thStatus")}</span></th>
+          <th data-i18n-title="webview.html.thQueueTitle" title="${t("webview.html.thQueueTitle")}"><span data-i18n="webview.html.thQueue">${t("webview.html.thQueue")}</span></th>
+          <th><span data-i18n="webview.html.thDuration">${t("webview.html.thDuration")}</span></th><th><span data-i18n="webview.html.thLastRun">${t("webview.html.thLastRun")}</span></th>
+          <th data-i18n-title="webview.html.thBuildTitle" title="${t("webview.html.thBuildTitle")}"><span data-i18n="webview.html.thBuild">${t("webview.html.thBuild")}</span></th>
+          <th data-i18n-title="webview.html.thParamTitle" title="${t("webview.html.thParamTitle")}"><span data-i18n="webview.html.thParam">${t("webview.html.thParam")}</span></th>
+          <th id="thTimeout" data-i18n-title="webview.html.thTimeoutTitle" title="${t("webview.html.thTimeoutTitle")}"><span data-i18n="webview.html.thTimeout">${t("webview.html.thTimeout")}</span></th>
+          <th id="thPre" data-i18n-title="webview.html.thPreTitle" title="${t("webview.html.thPreTitle")}"><span data-i18n="webview.html.thPre">${t("webview.html.thPre")}</span></th>
+          <th id="thPost" data-i18n-title="webview.html.thPostTitle" title="${t("webview.html.thPostTitle")}"><span data-i18n="webview.html.thPost">${t("webview.html.thPost")}</span></th>
+          <th><span data-i18n="webview.html.thActions">${t("webview.html.thActions")}</span></th>
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
-      <div class="empty-state" id="emptyState" style="display:none">${t("webview.html.empty")}</div>
+      <div class="empty-state" id="emptyState" style="display:none" data-i18n="webview.html.empty">${t("webview.html.empty")}</div>
     </div>
     <div class="actionbar">
-      <span class="sel">${t("webview.html.selected")} <b id="selCount">0</b> / <span id="totalCount">0</span></span>
+      <span class="sel"><span data-i18n="webview.html.selected">${t("webview.html.selected")}</span> <b id="selCount">0</b> / <span id="totalCount">0</span></span>
       <span class="sel logtoggle" id="logToggle">${t("webview.html.logToggle")}</span>
       <div class="spacer"></div>
-      <button class="btn" id="btnClearLog">${t("webview.html.clearLog")}</button>
+      <button class="btn" id="btnExportLog" data-i18n-title="webview.html.exportLog" data-i18n="webview.html.exportLog" title="${t("webview.html.exportLog")}">${t("webview.html.exportLog")}</button>
+      <button class="btn" id="btnClearLog" data-i18n="webview.html.clearLog">${t("webview.html.clearLog")}</button>
     </div>
-    <div class="log-resizer" id="logResizer" title="${t("webview.html.resizerTitle")}"></div>
+    <div class="log-resizer" id="logResizer" data-i18n-title="webview.html.resizerTitle" title="${t("webview.html.resizerTitle")}"></div>
     <div class="logpanel" id="logPanel"></div>
   </div>
 </div>
 
 <div class="overlay" id="paramOverlay">
   <div class="modal wide">
-    <h3>${t("webview.html.paramModalTitle")}</h3>
+    <h3 data-i18n="webview.html.paramModalTitle">${t("webview.html.paramModalTitle")}</h3>
     <div class="body">
-      <div class="hint">${t("webview.html.paramModalHint")}</div>
+      <div class="hint" data-i18n="webview.html.paramModalHint">${t("webview.html.paramModalHint")}</div>
       <div class="tpl-chips">
-        <span style="color:var(--text-dim);font-size:11px;align-self:center;">${t("webview.html.tplLabel")}</span>
-        <button class="btn sm" id="btnSaveParamTpl" style="margin-left:auto">${t("webview.html.saveTpl")}</button>
+        <span style="color:var(--text-dim);font-size:11px;align-self:center;" data-i18n="webview.html.tplLabel">${t("webview.html.tplLabel")}</span>
+        <button class="btn sm" id="btnSaveParamTpl" style="margin-left:auto" data-i18n="webview.html.saveTpl">${t("webview.html.saveTpl")}</button>
       </div>
       <div class="tpl-saved" id="paramTplList"></div>
       <div class="param-split">
         <div class="param-json">
-          <div class="pj-head"><span>${t("webview.html.jsonHead")} <span class="tag">${t("webview.html.jsonTag")}</span></span><span class="pj-status ok" id="pjStatus">${t("webview.jsonValid")}</span></div>
+          <div class="pj-head"><span><span data-i18n="webview.html.jsonHead">${t("webview.html.jsonHead")}</span> <span class="tag" data-i18n="webview.html.jsonTag">${t("webview.html.jsonTag")}</span></span><span class="pj-status ok" id="pjStatus">${t("webview.jsonValid")}</span></div>
           <textarea class="pj-text" id="paramJson" spellcheck="false" placeholder='{ "BRANCH": "main", "ENVIRONMENT": "staging" }'></textarea>
         </div>
         <div class="param-kv">
-          <div class="pj-head"><span>${t("webview.html.kvHead")}</span><span class="tag">${t("webview.html.kvTag")}</span></div>
+          <div class="pj-head"><span data-i18n="webview.html.kvHead">${t("webview.html.kvHead")}</span><span class="tag" data-i18n="webview.html.kvTag">${t("webview.html.kvTag")}</span></div>
           <div id="kvList"></div>
-          <div class="kvfoot"><button class="btn sm" id="btnAddKv">${t("webview.html.addParam")}</button></div>
+          <div class="kvfoot"><button class="btn sm" id="btnAddKv" data-i18n="webview.html.addParam">${t("webview.html.addParam")}</button></div>
         </div>
       </div>
     </div>
     <div class="foot">
-      <button class="btn" id="btnParamCancel">${t("webview.cancelBtn")}</button>
-      <button class="btn primary" id="btnParamSave">${t("webview.html.saveParams")}</button>
+      <button class="btn" id="btnParamCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnParamSave" data-i18n="webview.html.saveParams">${t("webview.html.saveParams")}</button>
     </div>
   </div>
 </div>
 
 <div class="overlay" id="paramTplOverlay">
   <div class="modal">
-    <h3>${t("webview.html.tplModalTitle")}</h3>
+    <h3 data-i18n="webview.html.tplModalTitle">${t("webview.html.tplModalTitle")}</h3>
     <div class="body">
       <div class="summary-box" id="paramTplSummary"></div>
-      <div class="field"><label>${t("webview.html.tplNameLabel")}</label><input type="text" id="paramTplName" placeholder="${t("webview.html.tplNamePlaceholder")}" /></div>
-      <div class="hint">${t("webview.html.tplHint")}</div>
+      <div class="field"><label data-i18n="webview.html.tplNameLabel">${t("webview.html.tplNameLabel")}</label><input type="text" id="paramTplName" data-i18n-placeholder="webview.html.tplNamePlaceholder" placeholder="${t("webview.html.tplNamePlaceholder")}" /></div>
+      <div class="hint" data-i18n="webview.html.tplHint">${t("webview.html.tplHint")}</div>
     </div>
     <div class="foot">
-      <button class="btn" id="btnParamTplCancel">${t("webview.cancelBtn")}</button>
-      <button class="btn primary" id="btnParamTplSave">${t("webview.html.saveTplBtn")}</button>
+      <button class="btn" id="btnParamTplCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnParamTplSave" data-i18n="webview.html.saveTplBtn">${t("webview.html.saveTplBtn")}</button>
     </div>
   </div>
 </div>
 
 <div class="overlay" id="triggerOverlay">
   <div class="modal">
-    <h3>${t("webview.html.triggerModalTitle")}</h3>
+    <h3 data-i18n="webview.html.triggerModalTitle">${t("webview.html.triggerModalTitle")}</h3>
     <div class="body">
-      <div class="hint">${t("webview.html.triggerHint")}</div>
+      <div class="hint" data-i18n="webview.html.triggerHint">${t("webview.html.triggerHint")}</div>
       <textarea class="prev" id="triggerPreviewText" readonly></textarea>
     </div>
     <div class="foot">
-      <button class="btn" id="btnTriggerCancel">${t("webview.cancelBtn")}</button>
-      <button class="btn primary" id="btnTriggerConfirm">${t("webview.triggerConfirm")}</button>
+      <button class="btn" id="btnTriggerCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnTriggerConfirm" data-i18n="webview.triggerConfirm">${t("webview.triggerConfirm")}</button>
     </div>
   </div>
 </div>
 
 <div class="overlay" id="timeoutOverlay">
   <div class="modal">
-    <h3>${t("webview.html.timeoutModalTitle")}</h3>
+    <h3 data-i18n="webview.html.timeoutModalTitle">${t("webview.html.timeoutModalTitle")}</h3>
     <div class="body">
-      <div class="field"><label>${t("webview.html.timeoutModalLabel")}</label><input type="number" id="timeoutInput" min="1" step="1" /> <span style="color:var(--text-dim)">${t("webview.html.timeoutModalUnit")}</span></div>
+      <div class="field"><label data-i18n="webview.html.timeoutModalLabel">${t("webview.html.timeoutModalLabel")}</label><input type="number" id="timeoutInput" min="1" step="1" /> <span style="color:var(--text-dim)" data-i18n="webview.html.timeoutModalUnit">${t("webview.html.timeoutModalUnit")}</span></div>
     </div>
     <div class="foot">
-      <button class="btn" id="btnTimeoutCancel">${t("webview.cancelBtn")}</button>
-      <button class="btn primary" id="btnTimeoutSave">${t("webview.html.timeoutModalSave")}</button>
+      <button class="btn" id="btnTimeoutCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnTimeoutSave" data-i18n="webview.html.timeoutModalSave">${t("webview.html.timeoutModalSave")}</button>
     </div>
   </div>
 </div>

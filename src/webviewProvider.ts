@@ -14,10 +14,13 @@ type InMsg =
   | { type: "deleteParamTpl"; id: number; data: { id: number } }
   | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
   | { type: "saveActiveTpl"; data: { name: string } }
-  | { type: "toggleActions"; id: number; data: { jobPath: string } }
-  | { type: "setActionsBatch"; id: number; data: { jobPaths: string[]; enabled: boolean } }
+  | { type: "togglePre"; id: number; data: { jobPath: string } }
+  | { type: "togglePost"; id: number; data: { jobPath: string } }
+  | { type: "setPreBatch"; id: number; data: { jobPaths: string[]; enabled: boolean } }
+  | { type: "setPostBatch"; id: number; data: { jobPaths: string[]; enabled: boolean } }
   | { type: "openActionsConfig" }
   | { type: "openBuild"; data: { url: string } }
+  | { type: "exportLog"; data: { text: string } }
   | { type: "clearSelection" };
 
 interface LoadResult extends Snapshot {
@@ -127,13 +130,23 @@ export class WebviewProvider {
         this.state.saveActiveTpl(m.data.name);
         break;
       }
-      case "toggleActions": {
-        await this.state.toggleActions(m.data.jobPath);
+      case "togglePre": {
+        await this.state.togglePreActions(m.data.jobPath);
         this.reply(m.id, this.state.snapshot());
         break;
       }
-      case "setActionsBatch": {
-        await this.state.setActionsEnabled(m.data.jobPaths, m.data.enabled);
+      case "togglePost": {
+        await this.state.togglePostActions(m.data.jobPath);
+        this.reply(m.id, this.state.snapshot());
+        break;
+      }
+      case "setPreBatch": {
+        await this.state.setPreEnabled(m.data.jobPaths, m.data.enabled);
+        this.reply(m.id, this.state.snapshot());
+        break;
+      }
+      case "setPostBatch": {
+        await this.state.setPostEnabled(m.data.jobPaths, m.data.enabled);
         this.reply(m.id, this.state.snapshot());
         break;
       }
@@ -147,6 +160,14 @@ export class WebviewProvider {
           void vscode.env.openExternal(vscode.Uri.parse(m.data.url));
         }
         break;
+      case "exportLog": {
+        const doc = await vscode.workspace.openTextDocument({ content: m.data.text, language: "log" });
+        const editor = await vscode.window.showTextDocument(doc, { preview: false });
+        const end = doc.lineAt(doc.lineCount - 1).range.end;
+        editor.selection = new vscode.Selection(new vscode.Position(0, 0), end);
+        editor.revealRange(editor.selection);
+        break;
+      }
       case "clearSelection":
         this.state.clearSelection();
         break;

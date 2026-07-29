@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import { StateService } from "./state";
-import { t, setLocale, getLocale } from "./i18n";
+import { t, setLocale, getLocale, onLocaleChange } from "./i18n";
 import { Locale } from "./i18n/types";
 
 type SettingsMsg =
@@ -35,6 +35,12 @@ export class SettingsPanel {
     this.panel.webview.html = this.getHtml();
     this.panel.webview.onDidReceiveMessage((m: SettingsMsg) => void this.onMessage(m), undefined, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.disposables.push(
+      onLocaleChange(() => {
+        this.panel.title = t("settings.title");
+        this.panel.webview.html = this.getHtml();
+      })
+    );
   }
 
   private async onMessage(m: SettingsMsg): Promise<void> {

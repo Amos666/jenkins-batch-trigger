@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { StateService } from "./state";
 import { ActionsConfigFile, ActionConfig, emptyActionsConfig } from "./actionTypes";
-import { t } from "./i18n";
+import { t, onLocaleChange } from "./i18n";
 
 /** Inbound messages from the config webview. */
 type ConfigMsg =
@@ -48,6 +48,12 @@ export class ActionsConfigPanel {
     this.panel.webview.html = this.getHtml();
     this.panel.webview.onDidReceiveMessage((m: ConfigMsg) => void this.onMessage(m), undefined, this.disposables);
     this.panel.onDidDispose(() => this.dispose(), null, this.disposables);
+    this.disposables.push(
+      onLocaleChange(() => {
+        this.panel.title = t("config.title");
+        this.panel.webview.html = this.getHtml();
+      })
+    );
   }
 
   private async onMessage(m: ConfigMsg): Promise<void> {
@@ -285,7 +291,7 @@ export class ActionsConfigPanel {
 
 <div class="panel active" id="panel-pre">
   <div class="section">
-    <div class="section-title">Pre-Actions</div>
+    <div class="section-title">${t("config.preActions")}</div>
     <div class="hint">${t("config.preHint")}</div>
     <div id="preList"></div>
     <div class="add-card" id="btnAddPre">${t("config.addPre")}</div>
@@ -294,7 +300,7 @@ export class ActionsConfigPanel {
 
 <div class="panel" id="panel-post">
   <div class="section">
-    <div class="section-title">Post-Actions</div>
+    <div class="section-title">${t("config.postActions")}</div>
     <div class="hint">${t("config.postHint")}</div>
     <div id="postList"></div>
     <div class="add-card" id="btnAddPost">${t("config.addPost")}</div>
@@ -373,7 +379,7 @@ const I18N = {
   fieldVar: ${JSON.stringify(t("config.fieldVar"))},
   fieldCode: ${JSON.stringify(t("config.fieldCode"))},
 };
-let config = { enabled_pipelines: [], pre_actions: [], post_actions: [] };
+let config = { pre_enabled_pipelines: [], post_enabled_pipelines: [], pre_actions: [], post_actions: [] };
 
 /* ---- Tabs ---- */
 document.querySelectorAll('.tab').forEach(t => t.addEventListener('click', () => {

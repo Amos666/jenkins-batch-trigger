@@ -2,7 +2,7 @@
   "name": "jenkins-batch-trigger",
   "displayName": "Jenkins Pipeline Batch Trigger",
   "description": "Batch trigger Jenkins pipelines with custom params, monitor realtime status, organize jobs in a user-defined tree.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "publisher": "ghemail",
   "license": "MIT",
   "repository": {
@@ -47,7 +47,8 @@
       { "command": "jenkins-batch-trigger.deleteSelectedNodes", "title": "Delete Selected Nodes", "category": "Jenkins", "icon": "$(trash)" },
       { "command": "jenkins-batch-trigger.filterTree", "title": "Filter Tree", "category": "Jenkins", "icon": "$(filter)" },
       { "command": "jenkins-batch-trigger.clearFilter", "title": "Clear Filter", "category": "Jenkins", "icon": "$(filter-filled)" },
-      { "command": "jenkins-batch-trigger.toggleActions", "title": "Toggle Pre/Post Actions", "category": "Jenkins", "icon": "$(zap)" },
+      { "command": "jenkins-batch-trigger.togglePreActions", "title": "Toggle Pre Actions", "category": "Jenkins", "icon": "$(zap)" },
+      { "command": "jenkins-batch-trigger.togglePostActions", "title": "Toggle Post Actions", "category": "Jenkins", "icon": "$(zap)" },
       { "command": "jenkins-batch-trigger.openActionsConfig", "title": "Configure Actions", "category": "Jenkins", "icon": "$(settings)" },
       { "command": "jenkins-batch-trigger.showActionOutput", "title": "Show Action Output", "category": "Jenkins", "icon": "$(output)" }
     ],
@@ -80,7 +81,8 @@
         { "command": "jenkins-batch-trigger.refreshNode", "when": "false" },
         { "command": "jenkins-batch-trigger.clearSelection", "when": "false" },
         { "command": "jenkins-batch-trigger.clearFilter", "when": "false" },
-        { "command": "jenkins-batch-trigger.toggleActions", "when": "false" },
+        { "command": "jenkins-batch-trigger.togglePreActions", "when": "false" },
+        { "command": "jenkins-batch-trigger.togglePostActions", "when": "false" },
         { "command": "jenkins-batch-trigger.openActionsConfig", "when": "false" },
         { "command": "jenkins-batch-trigger.showActionOutput", "when": "false" }
       ]

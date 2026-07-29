@@ -13,7 +13,8 @@ import { t } from "./i18n";
 export interface Snapshot {
   selectedNodes: TreeNode[];
   paramTemplates: ParamTemplate[];
-  enabledPipelines: string[];
+  preEnabledPipelines: string[];
+  postEnabledPipelines: string[];
 }
 
 /**
@@ -47,8 +48,10 @@ export class StateService {
   readonly actionEngine: ActionEngine;
   readonly poller: BuildPoller;
   private actionsConfig: ActionsConfigFile | null = null;
-  /** Sync cache of enabled pipeline jobPaths for tree rendering. */
-  private enabledPipelines = new Set<string>();
+  /** Sync cache of pre-enabled pipeline jobPaths. */
+  private preEnabledPipelines = new Set<string>();
+  /** Sync cache of post-enabled pipeline jobPaths. */
+  private postEnabledPipelines = new Set<string>();
 
   constructor(
     private readonly store: GlobalStore,
@@ -91,7 +94,8 @@ export class StateService {
     return {
       selectedNodes,
       paramTemplates: this.paramTemplates,
-      enabledPipelines: [...this.enabledPipelines],
+      preEnabledPipelines: [...this.preEnabledPipelines],
+      postEnabledPipelines: [...this.postEnabledPipelines],
     };
   }
 
@@ -613,10 +617,11 @@ export class StateService {
       // Per-job params take priority over the global batch params.
       const effectiveParams = { ...((jobParamsMap && jobParamsMap[id]) || params) };
       const pipelineId = node.jobPath;
-      const actionsEnabled = cfg.enabled_pipelines.includes(pipelineId);
+      const preEnabled = cfg.pre_enabled_pipelines.includes(pipelineId);
+      const postEnabled = cfg.post_enabled_pipelines.includes(pipelineId);
 
       // ---- Pre-actions ----
-      if (actionsEnabled && cfg.pre_actions.length > 0) {
+      if (preEnabled && cfg.pre_actions.length > 0) {
         const state = await this.actionStore.loadState(pipelineId);
         const ctx = this.buildActionContext(effectiveParams, state, node);
         // Debug: log trigger params available for pre-action template resolution.
@@ -644,7 +649,9 @@ export class StateService {
       }
 
       // ---- Register for post-action polling ----
-      if (actionsEnabled && cfg.post_actions.length > 0) {
+      // Post-actions run on ANY terminal result (success/failure/aborted), so we
+      // always watch when post is enabled, regardless of expected outcome.
+      if (postEnabled && cfg.post_actions.length > 0) {
         this.poller.watch(pipelineId, node.jobPath, queueUrl || null, effectiveParams);
       }
     }
@@ -673,12 +680,32 @@ export class StateService {
 
   async abort(nodeIds: string[]): Promise<{ errors: string[] }> {
     const errors: string[] = [];
+    const candidates: TreeNode[] = [];
     for (const id of nodeIds) {
       const node = this.treeConfig.nodes[id];
       if (!node || node.type !== "job" || !node.jobPath) continue;
+      candidates.push(node);
+    }
+    // Refresh actual status from Jenkins before gating, so stale local state
+    // doesn't silently skip aborting jobs that are really running.
+    if (candidates.length > 0) {
+      try {
+        const updates = await this.client.refreshJobNodes(candidates);
+        for (const node of candidates) {
+          if (!node.jobPath) continue;
+          const update = updates.get(node.jobPath);
+          if (update) {
+            Object.assign(node, update);
+          }
+        }
+      } catch {
+        // Non-fatal; fall back to cached status for the gate below.
+      }
+    }
+    for (const node of candidates) {
       if (node.status !== "running" || !node.buildNumber) continue;
       try {
-        await this.client.abortBuild(node.jobPath, node.buildNumber);
+        await this.client.abortBuild(node.jobPath!, node.buildNumber);
       } catch (e) {
         errors.push(`${node.name}: ${(e as Error).message}`);
       }
@@ -760,38 +787,59 @@ export class StateService {
     }
   }
 
-  /** Check if actions are enabled for a given pipeline (by jobPath). */
+  /** Check if pre-actions are enabled for a given pipeline (by jobPath). */
   async isActionsEnabled(jobPath: string): Promise<boolean> {
     const cfg = await this.getActionsConfig();
-    return cfg.enabled_pipelines.includes(jobPath);
+    return cfg.pre_enabled_pipelines.includes(jobPath);
   }
 
-  /** Toggle actions enabled/disabled for a pipeline. */
-  async toggleActions(jobPath: string): Promise<boolean> {
+  /** Toggle PRE actions only for a pipeline. Returns true if now enabled. */
+  async togglePreActions(jobPath: string): Promise<boolean> {
     const cfg = await this.getActionsConfig();
-    const idx = cfg.enabled_pipelines.indexOf(jobPath);
-    if (idx >= 0) {
-      cfg.enabled_pipelines.splice(idx, 1);
-    } else {
-      cfg.enabled_pipelines.push(jobPath);
+    const idx = cfg.pre_enabled_pipelines.indexOf(jobPath);
+    if (idx >= 0) cfg.pre_enabled_pipelines.splice(idx, 1);
+    else cfg.pre_enabled_pipelines.push(jobPath);
+    await this.actionStore.saveConfig(cfg);
+    this.actionsConfig = cfg;
+    this.syncEnabledSet();
+    this.notifyTree();
+    return idx < 0;
+  }
+
+  /** Toggle POST actions only for a pipeline. Returns true if now enabled. */
+  async togglePostActions(jobPath: string): Promise<boolean> {
+    const cfg = await this.getActionsConfig();
+    const idx = cfg.post_enabled_pipelines.indexOf(jobPath);
+    if (idx >= 0) cfg.post_enabled_pipelines.splice(idx, 1);
+    else cfg.post_enabled_pipelines.push(jobPath);
+    await this.actionStore.saveConfig(cfg);
+    this.actionsConfig = cfg;
+    this.syncEnabledSet();
+    this.notifyTree();
+    return idx < 0;
+  }
+
+  /** Batch set PRE actions enabled/disabled for multiple pipelines. */
+  async setPreEnabled(jobPaths: string[], enabled: boolean): Promise<void> {
+    const cfg = await this.getActionsConfig();
+    for (const jp of jobPaths) {
+      const idx = cfg.pre_enabled_pipelines.indexOf(jp);
+      if (enabled && idx < 0) cfg.pre_enabled_pipelines.push(jp);
+      else if (!enabled && idx >= 0) cfg.pre_enabled_pipelines.splice(idx, 1);
     }
     await this.actionStore.saveConfig(cfg);
     this.actionsConfig = cfg;
     this.syncEnabledSet();
     this.notifyTree();
-    return idx < 0; // true = now enabled
   }
 
-  /** Batch set actions enabled/disabled for multiple pipelines. */
-  async setActionsEnabled(jobPaths: string[], enabled: boolean): Promise<void> {
+  /** Batch set POST actions enabled/disabled for multiple pipelines. */
+  async setPostEnabled(jobPaths: string[], enabled: boolean): Promise<void> {
     const cfg = await this.getActionsConfig();
     for (const jp of jobPaths) {
-      const idx = cfg.enabled_pipelines.indexOf(jp);
-      if (enabled && idx < 0) {
-        cfg.enabled_pipelines.push(jp);
-      } else if (!enabled && idx >= 0) {
-        cfg.enabled_pipelines.splice(idx, 1);
-      }
+      const idx = cfg.post_enabled_pipelines.indexOf(jp);
+      if (enabled && idx < 0) cfg.post_enabled_pipelines.push(jp);
+      else if (!enabled && idx >= 0) cfg.post_enabled_pipelines.splice(idx, 1);
     }
     await this.actionStore.saveConfig(cfg);
     this.actionsConfig = cfg;
@@ -817,12 +865,13 @@ export class StateService {
   }
 
   private syncEnabledSet(): void {
-    this.enabledPipelines = new Set(this.actionsConfig?.enabled_pipelines ?? []);
+    this.preEnabledPipelines = new Set(this.actionsConfig?.pre_enabled_pipelines ?? []);
+    this.postEnabledPipelines = new Set(this.actionsConfig?.post_enabled_pipelines ?? []);
   }
 
-  /** Synchronous check for tree rendering. */
+  /** Synchronous check whether pre-actions are enabled (for tree rendering). */
   isActionsEnabledSync(jobPath: string): boolean {
-    return this.enabledPipelines.has(jobPath);
+    return this.preEnabledPipelines.has(jobPath);
   }
 
   /** Synchronous check if a pipeline is being polled (for tree icon). */

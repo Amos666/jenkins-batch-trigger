@@ -357,11 +357,19 @@ function registerCommands(
       actionOutput.show(true);
     }),
 
-    vscode.commands.registerCommand("jenkins-batch-trigger.toggleActions", async (node: TreeNode) => {
+    vscode.commands.registerCommand("jenkins-batch-trigger.togglePreActions", async (node: TreeNode) => {
       if (!node || node.type !== "job" || !node.jobPath) return;
-      const enabled = await state.toggleActions(node.jobPath);
+      const enabled = await state.togglePreActions(node.jobPath);
       void vscode.window.showInformationMessage(
-        enabled ? t("cmd.actionsEnabled", { name: node.name }) : t("cmd.actionsDisabled", { name: node.name })
+        enabled ? t("cmd.preActionsEnabled", { name: node.name }) : t("cmd.preActionsDisabled", { name: node.name })
+      );
+    }),
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.togglePostActions", async (node: TreeNode) => {
+      if (!node || node.type !== "job" || !node.jobPath) return;
+      const enabled = await state.togglePostActions(node.jobPath);
+      void vscode.window.showInformationMessage(
+        enabled ? t("cmd.postActionsEnabled", { name: node.name }) : t("cmd.postActionsDisabled", { name: node.name })
       );
     }),
 

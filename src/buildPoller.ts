@@ -4,7 +4,8 @@ import { t } from "./i18n";
 
 const INITIAL_INTERVAL = 10_000;
 const MAX_INTERVAL = 60_000;
-const STALE_TIMEOUT = 30 * 60_000; // 30 minutes
+const QUEUE_STALE_TIMEOUT = 30 * 60_000; // give up on a build stuck in the queue
+const RUNNING_STALE_TIMEOUT = 24 * 60 * 60_000; // safety cap for actively-running builds
 
 export interface BuildCompleteInfo {
   build: WatchedBuild;
@@ -129,8 +130,10 @@ export class BuildPoller {
       for (const [key, build] of this.watched) {
         build.pollCount++;
 
-        // Check stale timeout.
-        if (Date.now() - build.triggeredAt > STALE_TIMEOUT) {
+        // Check stale timeout. Queued builds expire quickly; running builds are
+        // polled until any terminal result so post-actions always run.
+        const staleLimit = build.buildNumber === null ? QUEUE_STALE_TIMEOUT : RUNNING_STALE_TIMEOUT;
+        if (Date.now() - build.triggeredAt > staleLimit) {
           stale.push(key);
           this.log(t("poller.stale", { path: build.jobPath }));
           continue;

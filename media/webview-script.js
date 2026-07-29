@@ -12,6 +12,21 @@ function t(key, params) {
   if (params) { for (const [k, v] of Object.entries(params)) { s = s.replace("{" + k + "}", String(v)); } }
   return s;
 }
+// Re-apply translations to static (server-rendered) elements. Elements opt in
+// via data-i18n (textContent), data-i18n-title (title attr) or
+// data-i18n-placeholder (placeholder attr). Called on locale change so baked-in
+// HTML text updates immediately without resetting webview state.
+function applyStaticI18n() {
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = t(el.getAttribute("data-i18n"));
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.title = t(el.getAttribute("data-i18n-title"));
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.placeholder = t(el.getAttribute("data-i18n-placeholder"));
+  });
+}
 
 const vscode = acquireVsCodeApi();
 let _rid = 0;
@@ -37,17 +52,21 @@ window.addEventListener("message", (e) => {
     logMsg(m.msg, "info");
   } else if (m && m.type === "locale") {
     __i18n = m.messages || {};
+    applyStaticI18n();
+    syncLogToggleLabel();
     render();
+    renderParamTpl();
+    renderParamBtn();
   } else if (m && m.type === "openConfig") {
     // Connection config is now handled by the sidebar settings button.
   }
 });
 
-const STATUS_LABEL = { running:"Running", success:"Success", failed:"Failed", unstable:"Unstable", aborted:"Aborted", idle:"Idle", unknown:"Unknown" };
+const STATUS_KEY = { running:"webview.status.running", success:"webview.status.success", failed:"webview.status.failed", unstable:"webview.status.unstable", aborted:"webview.status.aborted", idle:"webview.status.idle", unknown:"webview.status.unknown" };
 const BADGE = { running:"b-running", success:"b-success", failed:"b-failed", unstable:"b-unstable", aborted:"b-aborted", idle:"b-idle", unknown:"b-idle" };
 
 /* ============ 状态 ============ */
-let STATE = { selectedNodes: [], paramTemplates: [], enabledPipelines: [] };
+let STATE = { selectedNodes: [], paramTemplates: [], preEnabledPipelines: [], postEnabledPipelines: [] };
 let search = "";
 let statusFilter = "all";
 let params = [];
@@ -63,6 +82,8 @@ let jobParamMap = new Map();
 let expandedParamJobId = null;
 // Pipeline column display level: 0=job name only, 1=parent/job, 2=grandparent/parent/job
 let pipelineDisplayLevel = 0;
+// Whether the Pipeline column width is still auto-sized (false once user drags it).
+let pipelineColAuto = true;
 // Timeout watchdog: tracks which jobs have timeout monitoring enabled.
 let timeoutWatchSet = new Set();
 let timeoutMinutes = 10;
@@ -94,7 +115,8 @@ function applySnapshot(s) {
     STATE.selectedNodes = s.selectedNodes;
   }
   if (s.paramTemplates) STATE.paramTemplates = s.paramTemplates;
-  if (s.enabledPipelines) STATE.enabledPipelines = s.enabledPipelines;
+  if (s.preEnabledPipelines) STATE.preEnabledPipelines = s.preEnabledPipelines;
+  if (s.postEnabledPipelines) STATE.postEnabledPipelines = s.postEnabledPipelines;
   render();
   renderParamTpl();
 }
@@ -147,6 +169,32 @@ function getPipelineDisplayLabel(d) {
   return parts.length >= 3 ? parts.slice(-3).join("/") : fullPath;
 }
 
+/* ============ Pipeline 列自适应宽度 ============ */
+const _measureCtx = document.createElement("canvas").getContext("2d");
+// Auto-size the Pipeline column to fit the longest visible job label.
+// Skipped once the user has manually dragged the column resizer.
+function autoSizePipelineColumn() {
+  if (!pipelineColAuto) return;
+  const th = document.getElementById("thPipeline");
+  if (!th) return;
+  const list = visibleData();
+  if (list.length === 0) return;
+  // Match the font used by the .name cells for accurate measurement.
+  const sample = document.querySelector("#tbody .name");
+  if (sample) {
+    const cs = getComputedStyle(sample);
+    _measureCtx.font = cs.fontWeight + " " + cs.fontSize + " " + cs.fontFamily;
+  }
+  let maxW = 60;
+  for (const d of list) {
+    const w = _measureCtx.measureText(getPipelineDisplayLabel(d)).width;
+    if (w > maxW) maxW = w;
+  }
+  // Cap so the column never swallows the whole table.
+  const cap = Math.floor((document.querySelector(".tablewrap") || { clientWidth: 800 }).clientWidth * 0.45);
+  th.style.width = Math.min(Math.ceil(maxW + 30), cap) + "px";
+}
+
 /* ============ 渲染表格 ============ */
 function visibleData() {
   let list = STATE.selectedNodes.slice();
@@ -186,7 +234,8 @@ function render() {
     tr.className = webviewChecked.has(d.id) ? "sel" : "";
     const st = d.status || "unknown";
     const checkedAttr = webviewChecked.has(d.id) ? "checked" : "";
-    const actionsChecked = STATE.enabledPipelines.includes(d.jobPath || d.name) ? "checked" : "";
+    const preChecked = STATE.preEnabledPipelines.includes(d.jobPath || d.name) ? "checked" : "";
+    const postChecked = STATE.postEnabledPipelines.includes(d.jobPath || d.name) ? "checked" : "";
     const timeoutChecked = timeoutWatchSet.has(d.id) ? "checked" : "";
     const hasJobParams = jobParamMap.has(d.id);
     const globalParams = getTriggerParams();
@@ -203,13 +252,14 @@ function render() {
     tr.innerHTML =
       `<td class="col-check"><input type="checkbox" class="rowchk" data-id="${d.id}" ${checkedAttr}></td>` +
       `<td><div class="name" title="${d.jobPath || d.name}">${getPipelineDisplayLabel(d)}</div><div class="sub"><span class="folder-tag">${d.folder || d.jobPath || ""}</span></div></td>` +
-      `<td><span class="badge ${BADGE[st] || "b-idle"}"><span class="sw"></span>${STATUS_LABEL[st] || "Unknown"}</span></td>` +
+      `<td><span class="badge ${BADGE[st] || "b-idle"}"><span class="sw"></span>${t(STATUS_KEY[st] || "webview.status.unknown")}</span></td>` +
       `<td>${d.queue > 0 ? `<span class="qbadge" title="${t("webview.queueTitle", {n: d.queue})}">${t("webview.queueBadge", {n: d.queue})}</span>` : '<span style="color:var(--text-faint)">—</span>'}</td>` +
       `<td>${d.dur || "—"}</td><td>${d.time || "—"}</td>` +
       `<td><span class="link build-link" data-url="${jobBuildUrl(d)}" title="${jobBuildUrl(d)}">${d.build || "—"} ↗</span></td>` +
       `<td><span class="${paramClass}" data-param="${d.id}" title="${t("webview.editParamTitle")}">${paramLabel}</span></td>` +
       `<td class="col-check"><input type="checkbox" class="tmchk" data-id="${d.id}" ${timeoutChecked}></td>` +
-      `<td class="col-check"><input type="checkbox" class="actchk" data-jobpath="${d.jobPath || d.name}" ${actionsChecked}></td>` +
+      `<td class="col-check"><input type="checkbox" class="prechk" data-jobpath="${d.jobPath || d.name}" ${preChecked}></td>` +
+      `<td class="col-check"><input type="checkbox" class="postchk" data-jobpath="${d.jobPath || d.name}" ${postChecked}></td>` +
       `<td><span class="link" data-run="${d.id}">${t("webview.trigger")}</span> · <span class="link" data-log="${d.id}">${t("webview.log")}</span>${st === "running" ? ` · <span class="link warn" data-abort="${d.id}">${t("webview.abort")}</span>` : ""}</td>`;
     tbody.appendChild(tr);
 
@@ -231,7 +281,7 @@ function render() {
     // Escape HTML special chars so textarea content is not misparsed by the HTML parser.
     const paramTextEscaped = escapeHtml(paramText);
     paramTr.innerHTML =
-      `<td colspan="11"><div class="job-param-box">` +
+      `<td colspan="12"><div class="job-param-box">` +
       `<textarea class="job-param-textarea" data-jobid="${d.id}" spellcheck="false" placeholder='${t("webview.paramPlaceholder")}'>${paramTextEscaped}</textarea>` +
       `<div class="job-param-actions">` +
       `<button class="btn sm" data-paramsave="${d.id}">${t("webview.save")}</button>` +
@@ -270,6 +320,7 @@ function render() {
   const ab = document.getElementById("btnAbort");
   ab.disabled = runSel === 0;
   ab.title = runSel > 0 ? t("webview.abortTitle2", {n: runSel}) : t("webview.abortNoneTitle");
+  autoSizePipelineColumn();
 }
 
 /* ============ Per-job 参数（优先于批量参数） ============ */
@@ -381,7 +432,7 @@ function renderParamTpl() {
     const isActive = tpl.name === activeParamTpl;
     c.className = "chip" + (isDefault ? " default" : "") + (isActive ? " on" : "");
     c.innerHTML = tpl.name
-      + (isDefault ? ' <span class="save-def" data-ptsave="0" title="Save current params to Default">↻</span>' : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
+      + (isDefault ? ' <span class="save-def" data-ptsave="0" title="' + t("webview.tplSaveDefTitle") + '">↻</span>' : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
     c.onclick = (e) => {
       // Overwrite Default template with current params.
       if (e.target.dataset.ptsave !== undefined) {
@@ -426,9 +477,13 @@ document.getElementById("tbody").addEventListener("change", (e) => {
     else webviewChecked.delete(id);
     render();
   }
-  if (e.target.classList.contains("actchk")) {
+  if (e.target.classList.contains("prechk")) {
     const jobPath = e.target.dataset.jobpath;
-    rpc("toggleActions", { jobPath }).then((r) => { if (r) applySnapshot(r); });
+    rpc("togglePre", { jobPath }).then((r) => { if (r) applySnapshot(r); });
+  }
+  if (e.target.classList.contains("postchk")) {
+    const jobPath = e.target.dataset.jobpath;
+    rpc("togglePost", { jobPath }).then((r) => { if (r) applySnapshot(r); });
   }
   if (e.target.classList.contains("tmchk")) {
     const id = e.target.dataset.id;
@@ -447,12 +502,19 @@ document.getElementById("checkAll").addEventListener("change", (e) => {
   }
   render();
 });
-// Header thPrePost: double-click to toggle Pre/Post Actions for all visible rows.
-document.getElementById("thPrePost").addEventListener("dblclick", () => {
+// Header thPre: double-click to toggle PRE actions for all visible rows.
+document.getElementById("thPre").addEventListener("dblclick", () => {
   const list = visibleData();
   const jobPaths = list.map((d) => d.jobPath || d.name);
-  const allEnabled = list.length > 0 && list.every((d) => STATE.enabledPipelines.includes(d.jobPath || d.name));
-  rpc("setActionsBatch", { jobPaths, enabled: !allEnabled }).then((r) => { if (r) applySnapshot(r); });
+  const allEnabled = list.length > 0 && list.every((d) => STATE.preEnabledPipelines.includes(d.jobPath || d.name));
+  rpc("setPreBatch", { jobPaths, enabled: !allEnabled }).then((r) => { if (r) applySnapshot(r); });
+});
+// Header thPost: double-click to toggle POST actions for all visible rows.
+document.getElementById("thPost").addEventListener("dblclick", () => {
+  const list = visibleData();
+  const jobPaths = list.map((d) => d.jobPath || d.name);
+  const allEnabled = list.length > 0 && list.every((d) => STATE.postEnabledPipelines.includes(d.jobPath || d.name));
+  rpc("setPostBatch", { jobPaths, enabled: !allEnabled }).then((r) => { if (r) applySnapshot(r); });
 });
 // Header thTimeout: double-click to toggle timeout watch for all visible rows.
 document.getElementById("thTimeout").addEventListener("dblclick", () => {
@@ -495,6 +557,15 @@ document.getElementById("tbody").addEventListener("click", (e) => {
     clearJobParam(e.target.dataset.paramclear);
   }
 });
+document.getElementById("btnExportLog").onclick = () => {
+  const lines = Array.from(document.getElementById("logPanel").children).map((d) => d.textContent);
+  if (lines.length === 0) {
+    toast(t("webview.logEmpty"));
+    return;
+  }
+  fire("exportLog", { text: lines.join("\n") });
+  toast(t("webview.logExported"));
+};
 document.getElementById("btnClearLog").onclick = () => {
   document.getElementById("logPanel").innerHTML = "";
   toast(t("webview.logCleared"));
@@ -526,28 +597,42 @@ function ensureTimeoutTimer() {
     timeoutTimer = setInterval(checkTimeouts, 10000);
   }
 }
+let timeoutCheckRunning = false;
 async function checkTimeouts() {
-  const now = Date.now();
-  const limit = timeoutMinutes * 60 * 1000;
-  const toAbort = [];
-  for (const d of STATE.selectedNodes) {
-    if (!timeoutWatchSet.has(d.id)) { timeoutStartTimeMap.delete(d.id); continue; }
-    if (d.status === "running") {
-      if (!timeoutStartTimeMap.has(d.id)) timeoutStartTimeMap.set(d.id, now);
-      if (now - timeoutStartTimeMap.get(d.id) >= limit) toAbort.push(d);
-    } else {
-      timeoutStartTimeMap.delete(d.id);
+  // Skip if the previous tick is still in flight (slow refresh/abort), so ticks
+  // never overlap and double-abort.
+  if (timeoutCheckRunning) return;
+  timeoutCheckRunning = true;
+  try {
+    // Refresh first so timeout decisions use accurate, up-to-date status.
+    // Without this, stale local status (e.g. auto-refresh off) hides running
+    // jobs and the watchdog never aborts them.
+    const fresh = await rpc("refresh", { mode: "nonTerminal" });
+    if (fresh) applySnapshot(fresh);
+    const now = Date.now();
+    const limit = timeoutMinutes * 60 * 1000;
+    const toAbort = [];
+    for (const d of STATE.selectedNodes) {
+      if (!timeoutWatchSet.has(d.id)) { timeoutStartTimeMap.delete(d.id); continue; }
+      if (d.status === "running") {
+        if (!timeoutStartTimeMap.has(d.id)) timeoutStartTimeMap.set(d.id, now);
+        if (now - timeoutStartTimeMap.get(d.id) >= limit) toAbort.push(d);
+      } else {
+        timeoutStartTimeMap.delete(d.id);
+      }
     }
+    if (toAbort.length === 0) return;
+    const nodeIds = toAbort.map((d) => d.id);
+    logMsg(t("webview.timeoutAborting", {count: nodeIds.length, n: timeoutMinutes}), "warn");
+    const r = await rpc("abort", { nodeIds });
+    if (r) applySnapshot(r);
+    toAbort.forEach((d) => {
+      timeoutStartTimeMap.delete(d.id);
+      logMsg(t("webview.timeoutAborted", {name: d.name}), "warn");
+    });
+  } finally {
+    timeoutCheckRunning = false;
   }
-  if (toAbort.length === 0) return;
-  const nodeIds = toAbort.map((d) => d.id);
-  logMsg(t("webview.timeoutAborting", {count: nodeIds.length, n: timeoutMinutes}), "warn");
-  const r = await rpc("abort", { nodeIds });
-  if (r) applySnapshot(r);
-  toAbort.forEach((d) => {
-    timeoutStartTimeMap.delete(d.id);
-    logMsg(t("webview.timeoutAborted", {name: d.name}), "warn");
-  });
 }
 
 /* ============ 参数弹窗 ============ */
@@ -591,12 +676,12 @@ function showTriggerPreview() {
   if (list.length === 0) { toast(t("webview.noPipelineSelected")); return; }
   const tp = getTriggerParams();
   if (tp === null) { toast(t("webview.paramJsonInvalidFix")); return; }
-  const names = list.map((d) => d.name);
+  const names = list.map((d) => d.jobPath || d.name);
   const paramLines = tp.length ? tp.map((p) => p[0] + "=" + p[1]).join("\n") : t("webview.noParams2");
   // Build per-job params preview.
   const customJobs = list.filter((d) => jobParamMap.has(d.id));
   const customLines = customJobs.length
-    ? customJobs.map((d) => "  • " + d.name + ": " + JSON.stringify(jobParamMap.get(d.id))).join("\n")
+    ? customJobs.map((d) => "  • " + (d.jobPath || d.name) + ": " + JSON.stringify(jobParamMap.get(d.id))).join("\n")
     : t("webview.none");
   document.getElementById("triggerPreviewText").value =
 `${t("webview.previewHeader", {count: list.length})}
@@ -708,6 +793,10 @@ let autoTimer = null;
 // non-terminal (running, idle, unknown) or has queue > 0. If everything is
 // in a terminal state with no queue, the tick is skipped entirely.
 const TERMINAL_STATES = new Set(["success", "failed", "unstable", "aborted"]);
+function autoRefreshSec() {
+  const s = parseInt(document.getElementById("autoInt").value, 10);
+  return s && s > 0 ? s : 10;
+}
 async function doAutoRefresh() {
   const needsRefresh = STATE.selectedNodes.some(
     (d) => !TERMINAL_STATES.has(d.status) || (d.queue > 0)
@@ -716,12 +805,30 @@ async function doAutoRefresh() {
   const r = await rpc("refresh", { mode: "nonTerminal" });
   if (r) applySnapshot(r);
 }
+// Self-rescheduling loop instead of setInterval: the next tick is only armed
+// after the current refresh settles, so the real frequency always matches the
+// configured interval and a slow Jenkins response can never stack up into
+// overlapping concurrent refreshes (which made the log look like it refreshed
+// far more often than the displayed interval).
+function scheduleNextAutoRefresh() {
+  if (!document.getElementById("autoChk").checked) { autoTimer = null; return; }
+  autoTimer = setTimeout(async () => {
+    try { await doAutoRefresh(); } finally { scheduleNextAutoRefresh(); }
+  }, autoRefreshSec() * 1000);
+}
+function startAutoRefresh() {
+  stopAutoRefresh();
+  scheduleNextAutoRefresh();
+}
+function stopAutoRefresh() {
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+}
 document.getElementById("autoChk").addEventListener("change", (e) => {
-  if (e.target.checked) { const s = +document.getElementById("autoInt").value; autoTimer = setInterval(doAutoRefresh, s * 1000); toast(t("webview.autoRefreshOn", {n: s})); }
-  else { clearInterval(autoTimer); autoTimer = null; toast(t("webview.autoRefreshOff")); }
+  if (e.target.checked) { startAutoRefresh(); toast(t("webview.autoRefreshOn", {n: autoRefreshSec()})); }
+  else { stopAutoRefresh(); toast(t("webview.autoRefreshOff")); }
 });
-document.getElementById("autoInt").addEventListener("change", (e) => {
-  if (document.getElementById("autoChk").checked) { clearInterval(autoTimer); const s = +e.target.value; autoTimer = setInterval(doAutoRefresh, s * 1000); toast(t("webview.intervalChanged", {n: s})); }
+document.getElementById("autoInt").addEventListener("change", () => {
+  if (document.getElementById("autoChk").checked) { startAutoRefresh(); toast(t("webview.intervalChanged", {n: autoRefreshSec()})); }
 });
 
 /* ============ 日志面板（可拖拽调整高度） ============ */
@@ -733,17 +840,19 @@ logPanel.style.height = "120px";
 logPanel.style.flexBasis = "120px";
 
 // Toggle collapse/expand via the "活动日志" label.
+function syncLogToggleLabel() {
+  document.getElementById("logToggle").textContent = logCollapsed ? t("webview.logExpand") : t("webview.logCollapse");
+}
 document.getElementById("logToggle").onclick = () => {
   logCollapsed = !logCollapsed;
   if (logCollapsed) {
     logPanel.classList.add("collapsed");
     logResizer.classList.add("collapsed");
-    document.getElementById("logToggle").textContent = t("webview.logExpand");
   } else {
     logPanel.classList.remove("collapsed");
     logResizer.classList.remove("collapsed");
-    document.getElementById("logToggle").textContent = t("webview.logCollapse");
   }
+  syncLogToggleLabel();
 };
 
 // Drag the resizer bar to resize the log panel height.
@@ -798,6 +907,7 @@ document.addEventListener("mouseup", () => {
     let startX, startW;
     resizer.addEventListener("mousedown", (e) => {
       e.preventDefault(); e.stopPropagation();
+      if (th.id === "thPipeline") pipelineColAuto = false;
       startX = e.clientX;
       startW = th.offsetWidth;
       resizer.classList.add("dragging");

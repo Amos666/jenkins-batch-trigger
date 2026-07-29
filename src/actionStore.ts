@@ -29,9 +29,12 @@ export class ActionStore {
   async loadConfig(): Promise<ActionsConfigFile> {
     try {
       const raw = await fs.promises.readFile(this.configFile, "utf8");
-      const parsed = JSON.parse(raw) as Partial<ActionsConfigFile>;
+      const parsed = JSON.parse(raw) as Partial<ActionsConfigFile> & { enabled_pipelines?: string[] };
+      // Migrate legacy single "enabled_pipelines" field to the split pre/post fields.
+      const legacy = parsed.enabled_pipelines ?? [];
       return {
-        enabled_pipelines: parsed.enabled_pipelines ?? [],
+        pre_enabled_pipelines: parsed.pre_enabled_pipelines ?? legacy,
+        post_enabled_pipelines: parsed.post_enabled_pipelines ?? legacy,
         pre_actions: parsed.pre_actions ?? [],
         post_actions: parsed.post_actions ?? [],
       };

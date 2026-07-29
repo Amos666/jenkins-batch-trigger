@@ -354,9 +354,15 @@ const STATUS_CLASS = {
   unstable: "s-unstable", aborted: "s-aborted", idle: "s-idle", unknown: "s-unknown"
 };
 const STATUS_LABEL = {
-  running: "Running", success: "Success", failed: "Failed",
-  unstable: "Unstable", aborted: "Aborted", idle: "Idle", unknown: "—"
+  running: ${JSON.stringify(t("webview.status.running"))},
+  success: ${JSON.stringify(t("webview.status.success"))},
+  failed: ${JSON.stringify(t("webview.status.failed"))},
+  unstable: ${JSON.stringify(t("webview.status.unstable"))},
+  aborted: ${JSON.stringify(t("webview.status.aborted"))},
+  idle: ${JSON.stringify(t("webview.status.idle"))},
+  unknown: ${JSON.stringify(t("webview.status.unknown"))}
 };
+const FOLDER_COUNT = ${JSON.stringify(t("picker.folderCount"))};
 
 let allJobs = [];
 let folderTree = null;
@@ -414,7 +420,7 @@ function renderTree() {
       html.push('<input type="checkbox" class="checkbox folder-check" data-folder="' + escapeAttr(folder.path) + '"' + (allSelected ? ' checked' : '') + ' />');
       html.push('<span class="icon">📁</span>');
       html.push('<span class="name">' + escapeHtml(folder.name) + '</span>');
-      html.push('<span class="build-info">' + folderJobCount + ' jobs</span>');
+      html.push('<span class="build-info">' + FOLDER_COUNT.replace('{n}', folderJobCount) + '</span>');
       html.push('</div>');
 
       if (!isCollapsed) {

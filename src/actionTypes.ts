@@ -86,16 +86,18 @@ export type ActionConfig =
 /* ==================== Config File ==================== */
 
 export interface ActionsConfigFile {
-  /** jobPath values of pipelines that have pre/post actions enabled. */
-  enabled_pipelines: string[];
-  /** Shared pre-actions applied to all enabled pipelines. */
+  /** jobPath values of pipelines that have PRE actions enabled. */
+  pre_enabled_pipelines: string[];
+  /** jobPath values of pipelines that have POST actions enabled. */
+  post_enabled_pipelines: string[];
+  /** Shared pre-actions applied to all pre-enabled pipelines. */
   pre_actions: ActionConfig[];
-  /** Shared post-actions applied to all enabled pipelines. */
+  /** Shared post-actions applied to all post-enabled pipelines. */
   post_actions: ActionConfig[];
 }
 
 export function emptyActionsConfig(): ActionsConfigFile {
-  return { enabled_pipelines: [], pre_actions: [], post_actions: [] };
+  return { pre_enabled_pipelines: [], post_enabled_pipelines: [], pre_actions: [], post_actions: [] };
 }
 
 /* ==================== State File ==================== */
