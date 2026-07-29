@@ -455,7 +455,7 @@ function renderParamTpl() {
       }
       // Apply template: load its params and mark as active.
       params = tpl.params.map((p) => p.slice()); renderKv();
-      activeParamTpl = tpl.name; onParamsChanged(); toast(t("webview.tplApplied", {name: tpl.name}));
+      activeParamTpl = tpl.name; onParamsChanged(); renderParamTpl(); toast(t("webview.tplApplied", {name: tpl.name}));
       rpc("saveActiveTpl", { name: tpl.name });
     };
     box.appendChild(c);

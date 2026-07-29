@@ -181,8 +181,9 @@
   .tpl-chips .chip{cursor:pointer;}
 
   /* 参数编辑器：左 JSON（权威）+ 右 KV 速编 双栏 */
-  .modal.wide{width:780px;}
-  .param-split{display:flex;gap:14px;align-items:stretch;margin-top:6px;}
+  .modal.wide{width:780px;resize:both;min-width:420px;min-height:300px;}
+  .modal.wide .body{flex:1;min-height:0;display:flex;flex-direction:column;}
+  .param-split{display:flex;gap:14px;align-items:stretch;margin-top:6px;flex:1;min-height:0;}
   .param-json{flex:1.5;display:flex;flex-direction:column;min-width:0;}
   .param-kv{flex:1;display:flex;flex-direction:column;min-width:0;}
   .pj-head{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--text-dim);
@@ -191,12 +192,12 @@
   .pj-status{font-size:10px;font-weight:600;padding:1px 8px;border-radius:9px;white-space:nowrap;}
   .pj-status.ok{color:var(--green);background:rgba(137,209,133,.12);}
   .pj-status.err{color:var(--red);background:rgba(244,135,113,.14);}
-  textarea.pj-text{width:100%;flex:1;min-height:268px;background:#1b1b1b;border:1px solid #333;border-radius:5px;
+  textarea.pj-text{width:100%;flex:1;min-height:0;background:#1b1b1b;border:1px solid #333;border-radius:5px;
     color:#d4d4d4;font-family:Consolas,"SFMono-Regular",monospace;font-size:12px;line-height:1.65;padding:10px 12px;
     resize:none;outline:none;white-space:pre;tab-size:2;transition:border-color .15s,box-shadow .15s;}
   textarea.pj-text:focus{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent);}
   textarea.pj-text.err{border-color:var(--red);box-shadow:0 0 0 1px rgba(244,135,113,.4);}
-  .param-kv #kvList{flex:1;overflow:auto;max-height:268px;padding-right:2px;}
+  .param-kv #kvList{flex:1;min-height:0;overflow:auto;padding-right:2px;}
   .param-kv .kvfoot{margin-top:8px;}
   .seg{display:flex;gap:0;border:1px solid #333;border-radius:4px;overflow:hidden;margin-bottom:10px;}
   .seg button{flex:1;background:var(--input);border:none;color:var(--text-dim);padding:6px;font-size:12px;cursor:pointer;border-right:1px solid #333;}

@@ -155,6 +155,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(actionOutput);
   state.poller.outputLogger = (msg) => actionOutput.appendLine(msg);
   state.actionEngine.outputLogger = (msg) => actionOutput.appendLine(msg);
+  state.outputLogger = (msg) => actionOutput.appendLine(msg);
 
   // Pipeline runtime status bar.
   const pipelineStatus = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 49);

@@ -216,6 +216,10 @@ export class ActionEngine {
       if (action.strategy === "first") break;
     }
 
+    if (matches.length > 0) {
+      this.log(t("action.regexMatches", { pattern: action.pattern, n: matches.length }));
+    }
+
     if (matches.length === 0) {
       switch (action.on_no_match) {
         case "fail":
@@ -265,7 +269,13 @@ export class ActionEngine {
     }
 
     try {
-      const body = await this.httpRequest(url, method, headers, action.body ? resolveTemplate(action.body, ctx) : undefined);
+      const { status, body } = await this.httpRequest(
+        url,
+        method,
+        headers,
+        action.body ? resolveTemplate(action.body, ctx) : undefined
+      );
+      this.log(t("action.httpOk", { method, url, status, len: body.length }));
 
       if (action.extract) {
         const regex = new RegExp(action.extract.pattern);
@@ -304,7 +314,7 @@ export class ActionEngine {
     }
   }
 
-  private httpRequest(url: string, method: string, headers: Record<string, string>, body?: string): Promise<string> {
+  private httpRequest(url: string, method: string, headers: Record<string, string>, body?: string): Promise<{ status: number; body: string }> {
     return new Promise((resolve, reject) => {
       const u = new URL(url);
       const lib = u.protocol === "https:" ? https : http;
@@ -321,10 +331,11 @@ export class ActionEngine {
           let data = "";
           res.on("data", (c) => (data += c));
           res.on("end", () => {
-            if ((res.statusCode || 0) >= 400) {
-              reject(new Error(`HTTP ${res.statusCode}`));
+            const status = res.statusCode || 0;
+            if (status >= 400) {
+              reject(new Error(`HTTP ${status}`));
             } else {
-              resolve(data);
+              resolve({ status, body: data });
             }
           });
         }

@@ -52,6 +52,8 @@ export class StateService {
   private preEnabledPipelines = new Set<string>();
   /** Sync cache of post-enabled pipeline jobPaths. */
   private postEnabledPipelines = new Set<string>();
+  /** Optional secondary logger (OutputChannel) for action lifecycle logs. */
+  outputLogger: ((msg: string) => void) | null = null;
 
   constructor(
     private readonly store: GlobalStore,
@@ -85,6 +87,18 @@ export class StateService {
   /** Push a log line to the webview activity log panel. */
   pushLog(msg: string): void {
     this.webview?.pushLog(msg);
+  }
+
+  /** Log an action lifecycle line to both the webview panel and OutputChannel. */
+  private logAction(msg: string): void {
+    this.pushLog(msg);
+    this.outputLogger?.(msg);
+  }
+
+  /** Format a params record as "k=v, k=v" for action logs. */
+  private fmtParams(params: Record<string, string>): string {
+    const keys = Object.keys(params);
+    return keys.length ? keys.map((k) => `${k}=${params[k]}`).join(", ") : "(empty)";
   }
 
   snapshot(): Snapshot {
@@ -624,19 +638,20 @@ export class StateService {
       if (preEnabled && cfg.pre_actions.length > 0) {
         const state = await this.actionStore.loadState(pipelineId);
         const ctx = this.buildActionContext(effectiveParams, state, node);
-        // Debug: log trigger params available for pre-action template resolution.
-        const preParamKeys = Object.keys(effectiveParams);
-        this.pushLog(t("state.preActionCtx", {
-          path: node.jobPath || node.name,
-          params: preParamKeys.length ? preParamKeys.map((k) => k + "=" + effectiveParams[k]).join(", ") : "(empty)"
-        }));
+        this.logAction(t("state.preActionStart", { path: pipelineId, n: cfg.pre_actions.length }));
+        this.logAction(t("state.preActionCtx", { path: pipelineId, params: this.fmtParams(effectiveParams) }));
         const result = await this.actionEngine.executePreActions(cfg.pre_actions, ctx);
         if (!result.ok) {
-          errors.push(t("state.preActionFailed", { name: node.name, error: result.errors.join("; ") }));
+          const msg = t("state.preActionFailed", { name: node.name, error: result.errors.join("; ") });
+          this.logAction(msg);
+          errors.push(msg);
           continue;
         }
         // Merge mutated pipeline_params back into effectiveParams.
         Object.assign(effectiveParams, ctx.pipeline_params);
+        this.logAction(t("state.preActionDone", { path: pipelineId, params: this.fmtParams(effectiveParams) }));
+      } else if (preEnabled) {
+        this.logAction(t("state.preActionSkipNone", { path: pipelineId }));
       }
 
       // ---- Trigger ----
@@ -702,14 +717,32 @@ export class StateService {
         // Non-fatal; fall back to cached status for the gate below.
       }
     }
+    const aborted: TreeNode[] = [];
     for (const node of candidates) {
       if (node.status !== "running" || !node.buildNumber) continue;
       try {
         await this.client.abortBuild(node.jobPath!, node.buildNumber);
+        aborted.push(node);
       } catch (e) {
         errors.push(`${node.name}: ${(e as Error).message}`);
       }
     }
+
+    // Guarantee post-actions run for aborted builds even if the poller lost its
+    // watch (dropped as stale while queued, or lost on a reload). Re-register
+    // only when missing so the original watch (with trigger params) is kept.
+    if (aborted.length > 0) {
+      const cfg = await this.getActionsConfig();
+      if (cfg.post_actions.length > 0) {
+        for (const node of aborted) {
+          if (!node.jobPath || !node.buildNumber) continue;
+          if (!cfg.post_enabled_pipelines.includes(node.jobPath)) continue;
+          if (this.poller.isWatching(node.jobPath)) continue;
+          this.poller.watchBuild(node.jobPath, node.jobPath, node.buildNumber, {});
+        }
+      }
+    }
+
     // Refresh status.
     const abortedNodes = nodeIds
       .map((id) => this.treeConfig.nodes[id])
@@ -754,10 +787,19 @@ export class StateService {
   /** Called by BuildPoller when a watched build completes. Runs post-actions. */
   private async onBuildComplete(info: BuildCompleteInfo): Promise<void> {
     const { build, result, logs } = info;
-    this.pushLog(t("state.postActionStart", { path: build.jobPath, build: build.buildNumber ?? 0, result }));
-
     const cfg = await this.getActionsConfig();
-    if (!cfg.post_actions.length) return;
+    this.logAction(t("state.postActionStart", {
+      path: build.jobPath,
+      build: build.buildNumber ?? 0,
+      result,
+      n: cfg.post_actions.length,
+      size: logs.length,
+    }));
+
+    if (!cfg.post_actions.length) {
+      this.logAction(t("state.postActionSkipNone", { path: build.jobPath }));
+      return;
+    }
 
     const state = await this.actionStore.loadState(build.pipelineId);
     const ctx: ActionContext = {
@@ -770,20 +812,16 @@ export class StateService {
       run: { prev: { id: (state as any).last_run_id || "" } },
     };
 
-    // Debug: log trigger params available for post-action template resolution.
-    const paramKeys = Object.keys(build.triggerParams || {});
-    this.pushLog(t("state.postActionCtx", {
-      path: build.jobPath,
-      params: paramKeys.length ? paramKeys.map((k) => k + "=" + build.triggerParams[k]).join(", ") : "(empty)"
-    }));
+    this.logAction(t("state.postActionCtx", { path: build.jobPath, params: this.fmtParams(build.triggerParams || {}) }));
 
     const postResult = await this.actionEngine.executePostActions(cfg.post_actions, ctx);
     if (postResult.ok) {
       (ctx.state as any).last_run_id = String(build.buildNumber ?? "");
       await this.actionStore.saveState(build.pipelineId, ctx.state as any);
-      this.pushLog(t("state.postActionOk", { path: build.jobPath }));
+      const stateKeys = Object.keys(ctx.state as any);
+      this.logAction(t("state.postActionOk", { path: build.jobPath, keys: stateKeys.length ? stateKeys.join(", ") : "(empty)" }));
     } else {
-      this.pushLog(t("state.postActionFailed", { path: build.jobPath, error: postResult.errors.join("; ") }));
+      this.logAction(t("state.postActionFailed", { path: build.jobPath, error: postResult.errors.join("; ") }));
     }
   }
 

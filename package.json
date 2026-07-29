@@ -2,12 +2,12 @@
   "name": "jenkins-batch-trigger",
   "displayName": "Jenkins Pipeline Batch Trigger",
   "description": "Batch trigger Jenkins pipelines with custom params, monitor realtime status, organize jobs in a user-defined tree.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "publisher": "ghemail",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Amos666/jenkins-batch-trigger.git"
+    "url": "https://github.com/ghemail/jenkins-batch-trigger.git"
   },
   "engines": {
     "vscode": "^1.80.0"

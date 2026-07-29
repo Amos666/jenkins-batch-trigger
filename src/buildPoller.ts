@@ -61,6 +61,30 @@ export class BuildPoller {
     this.onStatusChange?.();
   }
 
+  /**
+   * Watch a build whose number is already known (e.g. re-registered at abort
+   * time after the original watch was lost to a stale timeout or a reload).
+   * Skips queue resolution and polls the build status directly, so post-actions
+   * still run when the build reaches any terminal result.
+   */
+  watchBuild(pipelineId: string, jobPath: string, buildNumber: number, triggerParams: Record<string, string>): void {
+    const build: WatchedBuild = {
+      pipelineId,
+      jobPath,
+      buildNumber,
+      queueUrl: null,
+      triggerParams,
+      triggeredAt: Date.now(),
+      pollCount: 0,
+    };
+    this.watched.set(pipelineId, build);
+    this.log(t("poller.rewatch", { path: jobPath, n: buildNumber }));
+
+    this.interval = INITIAL_INTERVAL;
+    this.ensureTimer();
+    this.onStatusChange?.();
+  }
+
   /** Number of currently watched builds. */
   get size(): number {
     return this.watched.size;
