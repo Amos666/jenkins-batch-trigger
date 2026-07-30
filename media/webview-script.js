@@ -88,6 +88,9 @@ let pipelineColAuto = true;
 let timeoutWatchSet = new Set();
 let timeoutMinutes = 10;
 let timeoutStartTimeMap = new Map(); // nodeId -> Date.now() when first seen running
+// Terminal job statuses — used by auto-refresh, force-refresh, and the timeout
+// watchdog to decide whether an HTTP refresh is actually needed.
+const TERMINAL_STATES = new Set(["success", "failed", "unstable", "aborted"]);
 let timeoutTimer = null;
 
 function applySnapshot(s) {
@@ -602,6 +605,13 @@ async function checkTimeouts() {
   // Skip if the previous tick is still in flight (slow refresh/abort), so ticks
   // never overlap and double-abort.
   if (timeoutCheckRunning) return;
+  // Skip entirely when no watched job is running — terminal/queued jobs need
+  // no refresh and no abort decision. Avoids extra HTTP requests when
+  // auto-refresh is off and everything has already finished.
+  const hasRunning = STATE.selectedNodes.some(
+    (d) => timeoutWatchSet.has(d.id) && d.status === "running"
+  );
+  if (!hasRunning) return;
   timeoutCheckRunning = true;
   try {
     // Refresh first so timeout decisions use accurate, up-to-date status.
@@ -792,7 +802,6 @@ let autoTimer = null;
 // Auto refresh: only fires the RPC when there's at least one job that is
 // non-terminal (running, idle, unknown) or has queue > 0. If everything is
 // in a terminal state with no queue, the tick is skipped entirely.
-const TERMINAL_STATES = new Set(["success", "failed", "unstable", "aborted"]);
 function autoRefreshSec() {
   const s = parseInt(document.getElementById("autoInt").value, 10);
   return s && s > 0 ? s : 10;

@@ -82,6 +82,7 @@ export const en: Record<string, string> = {
   "poller.queueResolved": "[poller] {path} queue → build #{n}",
   "poller.logFailed": "[poller] Failed to fetch {path} #{n} logs: {error}",
   "poller.pollError": "[poller] Error polling {path}: {error}",
+  "poller.queueLost": "[poller] {path} queue item gone (build may have started): {error}",
   "poller.completed": "[poller] {path} #{n} completed: {result}",
 
   // ---- Action engine ----

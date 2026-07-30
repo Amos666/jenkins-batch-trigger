@@ -166,8 +166,26 @@ export class BuildPoller {
         try {
           // Phase 1: resolve queue item → build number.
           if (build.buildNumber === null) {
-            if (!build.queueUrl) {
-              // No queue URL and no build number — try to find latest build.
+            let queueResolved = false;
+            if (build.queueUrl) {
+              try {
+                const qi = await this.client.getQueueItem(build.queueUrl);
+                if (qi.executable?.number) {
+                  build.buildNumber = qi.executable.number;
+                  this.log(t("poller.queueResolved", { path: build.jobPath, n: build.buildNumber }));
+                  this.onStatusChange?.();
+                  queueResolved = true;
+                }
+              } catch (e) {
+                const msg = (e as Error).message || "";
+                // Queue item may have been consumed (build started) and is now 404.
+                // Fall back to resolving the build number from the job listing.
+                this.log(t("poller.queueLost", { path: build.jobPath, error: msg }));
+              }
+            }
+
+            if (!queueResolved) {
+              // No queue URL or queue item gone — try to find latest build.
               const jobs = await this.client.listJobsInFolder(
                 build.jobPath.includes("/") ? build.jobPath.slice(0, build.jobPath.lastIndexOf("/")) : ""
               );
@@ -177,13 +195,6 @@ export class BuildPoller {
                 this.log(t("poller.foundBuild", { path: build.jobPath, n: build.buildNumber }));
                 this.onStatusChange?.();
               }
-              continue;
-            }
-            const qi = await this.client.getQueueItem(build.queueUrl);
-            if (qi.executable?.number) {
-              build.buildNumber = qi.executable.number;
-              this.log(t("poller.queueResolved", { path: build.jobPath, n: build.buildNumber }));
-              this.onStatusChange?.();
             }
             continue; // Wait for next poll to check build status.
           }

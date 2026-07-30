@@ -82,6 +82,7 @@ export const zh: Record<string, string> = {
   "poller.queueResolved": "[poller] {path} 队列 → build #{n}",
   "poller.logFailed": "[poller] 获取 {path} #{n} 日志失败: {error}",
   "poller.pollError": "[poller] 轮询 {path} 出错: {error}",
+  "poller.queueLost": "[poller] {path} 队列项已消失（可能已开始执行）: {error}",
   "poller.completed": "[poller] {path} #{n} 完成: {result}",
 
   // ---- Action engine ----
