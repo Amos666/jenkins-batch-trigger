@@ -99,12 +99,10 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
         <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span><span data-i18n="webview.status.running">${t("webview.status.running")}</span></span>
         <span class="chip" data-st="success"><span class="sw" style="background:var(--green)"></span><span data-i18n="webview.status.success">${t("webview.status.success")}</span></span>
         <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span><span data-i18n="webview.status.failed">${t("webview.status.failed")}</span></span>
-        <span class="chip" data-st="unstable"><span class="sw" style="background:var(--yellow)"></span><span data-i18n="webview.status.unstable">${t("webview.status.unstable")}</span></span>
-        <span class="chip" data-st="aborted"><span class="sw" style="background:var(--gray)"></span><span data-i18n="webview.status.aborted">${t("webview.status.aborted")}</span></span>
       </div>
       <div class="divider"></div>
       <div class="autoref"><label><input type="checkbox" id="autoChk" /> <span data-i18n="webview.html.autoRefresh">${t("webview.html.autoRefresh")}</span></label>
-        <select id="autoInt"><option value="5">5s</option><option value="10" selected>10s</option><option value="30">30s</option><option value="60">1m</option></select>
+        <select id="autoInt"><option value="5">5s</option><option value="10">10s</option><option value="30">30s</option><option value="60" selected>1m</option><option value="180">3m</option><option value="300">5m</option></select>
       </div>
       <div class="spacer"></div>
       <button class="btn" id="btnParams" data-i18n-title="webview.html.paramsTitle" title="${t("webview.html.paramsTitle")}"><span data-i18n="webview.html.paramsBtn">${t("webview.html.paramsBtn")}</span> <span id="paramTplLabel">${t("webview.html.noTpl")}</span> <span id="paramCount" class="pcount">0</span></button>

@@ -311,17 +311,17 @@
           <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span>Running</span>
           <span class="chip" data-st="success"><span class="sw" style="background:var(--green)"></span>Success</span>
           <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span>Failed</span>
-          <span class="chip" data-st="unstable"><span class="sw" style="background:var(--yellow)"></span>Unstable</span>
-          <span class="chip" data-st="aborted"><span class="sw" style="background:var(--gray)"></span>Aborted</span>
         </div>
         <div class="divider"></div>
         <div class="autoref">
           <label><input type="checkbox" id="autoChk" /> 自动刷新</label>
           <select id="autoInt">
             <option value="5">5s</option>
-            <option value="10" selected>10s</option>
+            <option value="10">10s</option>
             <option value="30">30s</option>
-            <option value="60">1m</option>
+            <option value="60" selected>1m</option>
+            <option value="180">3m</option>
+            <option value="300">5m</option>
           </select>
         </div>
         <div class="spacer"></div>
