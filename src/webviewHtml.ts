@@ -72,8 +72,10 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .link.param-btn:hover{background:rgba(255,255,255,0.08);}
 .link.param-btn.has-params{color:var(--accent,#4fc3f7);font-weight:600;}
 .link.param-btn.has-job-params{color:var(--red,#f48771);font-weight:600;}
-.tpl-saved .chip .save-def{margin-left:5px;color:var(--accent,#4fc3f7);cursor:pointer;font-size:12px;opacity:.7;}
-.tpl-saved .chip .save-def:hover{opacity:1;}
+.tpl-saved .chip{cursor:grab;user-select:none;}
+.tpl-saved .chip.dragging{opacity:.4;cursor:grabbing;}
+.tpl-saved .chip.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
+.tpl-saved .chip.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
 /* Resizable log panel — uses a draggable resizer bar instead of CSS resize
    because resize:vertical does not work reliably on flex column children.
    Override ALL conflicting wireframe properties (display:none, max-height:110px). */
@@ -149,7 +151,8 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
       <div class="hint" data-i18n="webview.html.paramModalHint">${t("webview.html.paramModalHint")}</div>
       <div class="tpl-chips">
         <span style="color:var(--text-dim);font-size:11px;align-self:center;" data-i18n="webview.html.tplLabel">${t("webview.html.tplLabel")}</span>
-        <button class="btn sm" id="btnSaveParamTpl" style="margin-left:auto" data-i18n="webview.html.saveTpl">${t("webview.html.saveTpl")}</button>
+        <button class="btn sm" id="btnUpdateParamTpl" style="margin-left:auto" title="${t("webview.html.updateTplTitle")}" data-i18n="webview.html.updateTpl">${t("webview.html.updateTpl")}</button>
+        <button class="btn sm" id="btnSaveParamTpl" data-i18n="webview.html.saveTpl">${t("webview.html.saveTpl")}</button>
       </div>
       <div class="tpl-saved" id="paramTplList"></div>
       <div class="param-split">

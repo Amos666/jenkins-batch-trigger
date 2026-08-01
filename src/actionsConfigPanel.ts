@@ -378,6 +378,10 @@ const I18N = {
   fieldOnError: ${JSON.stringify(t("config.fieldOnError"))},
   fieldVar: ${JSON.stringify(t("config.fieldVar"))},
   fieldCode: ${JSON.stringify(t("config.fieldCode"))},
+  fieldBody: ${JSON.stringify(t("config.fieldBody"))},
+  fieldHeaders: ${JSON.stringify(t("config.fieldHeaders"))},
+  fieldExtractPattern: ${JSON.stringify(t("config.fieldExtractPattern"))},
+  fieldExtractTarget: ${JSON.stringify(t("config.fieldExtractTarget"))},
 };
 let config = { pre_enabled_pipelines: [], post_enabled_pipelines: [], pre_actions: [], post_actions: [] };
 
@@ -400,10 +404,48 @@ const TYPE_FIELDS = {
   state_read: [['key',I18N.fieldKey],['target',I18N.fieldTarget],['on_missing',I18N.fieldOnMissing,'select:skip,fail,fallback'],['fallback',I18N.fieldFallback]],
   regex_extract: [['source',I18N.fieldSource,'select:pipeline_logs'],['pattern',I18N.fieldPattern],['target',I18N.fieldTargetTpl],['strategy',I18N.fieldStrategy,'select:first,last,all'],['on_no_match',I18N.fieldOnNoMatch,'select:warn,fail,skip']],
   template_render: [['template',I18N.fieldTemplate],['target',I18N.fieldTarget]],
-  http_request: [['url',I18N.fieldUrl],['method',I18N.fieldMethod,'select:GET,POST'],['target',I18N.fieldTarget],['on_error',I18N.fieldOnError,'select:fail,warn,skip']],
+  http_request: [['url',I18N.fieldUrl],['method',I18N.fieldMethod,'select:GET,POST'],['headers',I18N.fieldHeaders,'headers'],['body',I18N.fieldBody,'textarea'],['target',I18N.fieldTarget],['extract.pattern',I18N.fieldExtractPattern],['extract.target',I18N.fieldExtractTarget],['on_error',I18N.fieldOnError,'select:fail,warn,skip']],
   env_read: [['var',I18N.fieldVar],['target',I18N.fieldTarget],['on_missing',I18N.fieldOnMissing,'select:skip,fail,fallback'],['fallback',I18N.fieldFallback]],
   script: [['code',I18N.fieldCode,'textarea'],['on_error',I18N.fieldOnError,'select:fail,warn,skip']],
 };
+const TYPE_DEFAULTS = {
+  state_read: { type:'state_read', key:'', target:'pipeline_params.', on_missing:'skip' },
+  regex_extract: { type:'regex_extract', source:'pipeline_logs', pattern:'', target:'state.', strategy:'first', on_no_match:'warn' },
+  template_render: { type:'template_render', template:'', target:'' },
+  http_request: { type:'http_request', url:'', method:'GET', target:'', on_error:'fail' },
+  env_read: { type:'env_read', var:'', target:'', on_missing:'skip' },
+  script: { type:'script', code:'', on_error:'fail' },
+};
+
+/* ---- Nested-path + headers helpers ---- */
+function getPath(obj, path) {
+  return path.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
+}
+function setPath(obj, path, val) {
+  const keys = path.split('.');
+  let o = obj;
+  for (let i = 0; i < keys.length - 1; i++) {
+    if (o[keys[i]] == null || typeof o[keys[i]] !== 'object') o[keys[i]] = {};
+    o = o[keys[i]];
+  }
+  o[keys[keys.length - 1]] = val;
+}
+function headersToText(h) {
+  if (!h) return '';
+  return Object.entries(h).map(([k, v]) => k + ': ' + v).join('\\n');
+}
+function textToHeaders(text) {
+  const h = {};
+  String(text).split('\\n').forEach(line => {
+    const idx = line.indexOf(':');
+    if (idx > 0) {
+      const k = line.slice(0, idx).trim();
+      const v = line.slice(idx + 1).trim();
+      if (k) h[k] = v;
+    }
+  });
+  return h;
+}
 
 function renderActions(list, containerId) {
   const box = document.getElementById(containerId);
@@ -414,7 +456,11 @@ function renderActions(list, containerId) {
     card.dataset.type = action.type;
     const fields = TYPE_FIELDS[action.type] || [];
     let fieldsHtml = fields.map(([key, label, kind]) => {
-      const val = action[key] || '';
+      const raw = getPath(action, key);
+      if (kind === 'headers') {
+        return '<label>'+esc(label)+'</label><textarea data-field="'+key+'" spellcheck="false" placeholder="Content-Type: application/json">'+esc(headersToText(raw))+'</textarea>';
+      }
+      const val = raw || '';
       if (kind === 'textarea') return '<label>'+esc(label)+'</label><textarea data-field="'+key+'" spellcheck="false">'+esc(val)+'</textarea>';
       if (kind && kind.startsWith('select:')) {
         const opts = kind.slice(7).split(',').map(o => '<option value="'+o+'"'+(val===o?' selected':'')+'>'+o+'</option>').join('');
@@ -434,23 +480,43 @@ function renderActions(list, containerId) {
       '<div class="fields">'+fieldsHtml+'</div>';
     box.appendChild(card);
     card.querySelector('.type-sel').addEventListener('change', (e) => {
-      list[i] = { type: e.target.value };
+      list[i] = { ...TYPE_DEFAULTS[e.target.value] };
       renderActions(list, containerId);
     });
     card.querySelectorAll('[data-field]').forEach(el => {
-      el.addEventListener('input', () => { list[i][el.dataset.field] = el.value; });
-      el.addEventListener('change', () => { list[i][el.dataset.field] = el.value; });
+      const kind = (fields.find(f => f[0] === el.dataset.field) || [])[2];
+      const set = () => {
+        if (kind === 'headers') setPath(list[i], el.dataset.field, textToHeaders(el.value));
+        else setPath(list[i], el.dataset.field, el.value);
+      };
+      el.addEventListener('input', set);
+      el.addEventListener('change', set);
     });
     card.querySelector('[data-del]').addEventListener('click', () => { list.splice(i, 1); renderActions(list, containerId); });
   });
 }
 function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 
-document.getElementById('btnAddPre').addEventListener('click', () => { config.pre_actions.push({ type: 'state_read', key: '', target: 'pipeline_params.', on_missing: 'skip' }); renderActions(config.pre_actions, 'preList'); });
-document.getElementById('btnAddPost').addEventListener('click', () => { config.post_actions.push({ type: 'regex_extract', source: 'pipeline_logs', pattern: '', target: 'state.', strategy: 'first', on_no_match: 'warn' }); renderActions(config.post_actions, 'postList'); });
+document.getElementById('btnAddPre').addEventListener('click', () => { config.pre_actions.push({ ...TYPE_DEFAULTS.state_read }); renderActions(config.pre_actions, 'preList'); });
+document.getElementById('btnAddPost').addEventListener('click', () => { config.post_actions.push({ ...TYPE_DEFAULTS.regex_extract }); renderActions(config.post_actions, 'postList'); });
 
 /* ---- Save ---- */
-document.getElementById('btnSave').addEventListener('click', () => { vscode.postMessage({ type: 'save', config }); });
+function normalizeAction(a) {
+  if (a.type !== 'http_request') return a;
+  const out = { ...a };
+  if (out.headers && Object.keys(out.headers).length === 0) delete out.headers;
+  if (out.body === '') delete out.body;
+  if (out.extract && (!out.extract.pattern || !out.extract.target)) delete out.extract;
+  return out;
+}
+document.getElementById('btnSave').addEventListener('click', () => {
+  const cleaned = {
+    ...config,
+    pre_actions: config.pre_actions.map(normalizeAction),
+    post_actions: config.post_actions.map(normalizeAction),
+  };
+  vscode.postMessage({ type: 'save', config: cleaned });
+});
 
 /* ---- State tab ---- */
 document.getElementById('btnLoadState').addEventListener('click', () => {

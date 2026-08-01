@@ -233,7 +233,10 @@ export class ActionEngine {
       }
     }
 
-    const value = action.strategy === "last" ? matches[matches.length - 1] : matches[0];
+    let value: string;
+    if (action.strategy === "last") value = matches[matches.length - 1];
+    else if (action.strategy === "all") value = matches.join("\n");
+    else value = matches[0];
     const rawTarget = action.target;
     const target = resolveTemplate(rawTarget, ctx);
     this.log(`[regex_extract] target: "${rawTarget}" → "${target}"`);

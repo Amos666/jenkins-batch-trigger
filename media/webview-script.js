@@ -419,10 +419,19 @@ function renderKv() {
   params.forEach((p, i) => {
     const row = document.createElement("div"); row.className = "kv-row";
     row.innerHTML = `<input class="k" value="${p[0]}" placeholder="KEY"><input value="${p[1]}" placeholder="VALUE"><span class="del">✕</span>`;
-    row.querySelector(".k").oninput = (e) => { params[i][0] = e.target.value; activeParamTpl = null; onParamsChanged(); };
-    row.querySelectorAll("input")[1].oninput = (e) => { params[i][1] = e.target.value; activeParamTpl = null; onParamsChanged(); };
-    row.querySelector(".del").onclick = () => { params.splice(i, 1); activeParamTpl = null; renderKv(); onParamsChanged(); };
+    row.querySelector(".k").oninput = (e) => { params[i][0] = e.target.value; onParamsChanged(); };
+    row.querySelectorAll("input")[1].oninput = (e) => { params[i][1] = e.target.value; onParamsChanged(); };
+    row.querySelector(".del").onclick = () => { params.splice(i, 1); renderKv(); onParamsChanged(); };
     box.appendChild(row);
+  });
+}
+let dragTplId = null;
+function clearDropMarkers(box) {
+  box.querySelectorAll(".chip").forEach((x) => x.classList.remove("drop-before", "drop-after"));
+}
+function persistTplOrder() {
+  rpc("reorderParamTpl", { ids: STATE.paramTemplates.map((x) => x.id) }).then((r) => {
+    if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
   });
 }
 function renderParamTpl() {
@@ -434,20 +443,48 @@ function renderParamTpl() {
     const isDefault = tpl.id === 0;
     const isActive = tpl.name === activeParamTpl;
     c.className = "chip" + (isDefault ? " default" : "") + (isActive ? " on" : "");
-    c.innerHTML = tpl.name
-      + (isDefault ? ' <span class="save-def" data-ptsave="0" title="' + t("webview.tplSaveDefTitle") + '">↻</span>' : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
+    c.innerHTML = tpl.name + (isDefault ? "" : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
+    // Drag to reorder templates.
+    c.draggable = true;
+    c.addEventListener("dragstart", (e) => {
+      dragTplId = tpl.id;
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", String(tpl.id)); } catch (_) {}
+      c.classList.add("dragging");
+    });
+    c.addEventListener("dragend", () => {
+      dragTplId = null;
+      clearDropMarkers(box);
+      c.classList.remove("dragging");
+    });
+    c.addEventListener("dragover", (e) => {
+      if (dragTplId === null || dragTplId === tpl.id) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const rect = c.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      clearDropMarkers(box);
+      c.classList.add(before ? "drop-before" : "drop-after");
+    });
+    c.addEventListener("dragleave", () => { c.classList.remove("drop-before", "drop-after"); });
+    c.addEventListener("drop", (e) => {
+      e.preventDefault();
+      clearDropMarkers(box);
+      if (dragTplId === null || dragTplId === tpl.id) return;
+      const rect = c.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      const arr = STATE.paramTemplates;
+      const from = arr.findIndex((x) => x.id === dragTplId);
+      const to = arr.findIndex((x) => x.id === tpl.id);
+      if (from < 0 || to < 0 || from === to) return;
+      const [moved] = arr.splice(from, 1);
+      const targetIdx = from < to ? to - 1 : to;
+      arr.splice(before ? targetIdx : targetIdx + 1, 0, moved);
+      dragTplId = null;
+      renderParamTpl();
+      persistTplOrder();
+    });
     c.onclick = (e) => {
-      // Overwrite Default template with current params.
-      if (e.target.dataset.ptsave !== undefined) {
-        e.stopPropagation();
-        if (params.length === 0) { toast(t("webview.noParamsConfig")); return; }
-        rpc("overwriteDefaultTpl", { params: params.map((p) => p.slice()) }).then((r) => {
-          if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
-          activeParamTpl = tpl.name; onParamsChanged(); renderParamBtn();
-          toast(t("webview.tplOverwriteDefault"));
-        });
-        return;
-      }
       // Delete template (non-default only).
       if (e.target.dataset.ptdel) {
         e.stopPropagation();
@@ -651,9 +688,27 @@ document.getElementById("btnParams").onclick = () => {
   document.getElementById("paramOverlay").classList.add("show");
 };
 document.getElementById("btnParamCancel").onclick = () => document.getElementById("paramOverlay").classList.remove("show");
-document.getElementById("btnAddKv").onclick = () => { params.push(["", ""]); activeParamTpl = null; renderKv(); onParamsChanged(); };
+document.getElementById("btnAddKv").onclick = () => { params.push(["", ""]); renderKv(); onParamsChanged(); };
 
 document.getElementById("paramJson").addEventListener("input", syncParamsFromJson);
+// Update the currently selected template (Default or named) with current params.
+// Does NOT close the modal.
+document.getElementById("btnUpdateParamTpl").onclick = () => {
+  if (!activeParamTpl) { toast(t("webview.noTplSelected")); return; }
+  const tpl = STATE.paramTemplates.find((x) => x.name === activeParamTpl);
+  if (!tpl) { toast(t("webview.noTplSelected")); return; }
+  const tp = getTriggerParams();
+  if (tp === null) { toast(t("webview.paramJsonInvalid")); return; }
+  if (tp.length === 0) { toast(t("webview.noParamsConfig")); return; }
+  const req = tpl.id === 0
+    ? rpc("overwriteDefaultTpl", { params: tp })
+    : rpc("saveParamTpl", { name: tpl.name, params: tp });
+  req.then((r) => {
+    if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
+    renderParamBtn();
+    toast(t("webview.tplUpdated", { name: tpl.name }));
+  });
+};
 document.getElementById("btnSaveParamTpl").onclick = () => {
   if (params.length === 0) { toast(t("webview.noParamsConfig")); return; }
   document.getElementById("paramTplSummary").innerHTML = t("webview.tplSummary", {count: params.length}) + "<br>" + params.map((p) => p[0] + "=" + p[1]).join("，");

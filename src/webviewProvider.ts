@@ -12,6 +12,7 @@ type InMsg =
   | { type: "refresh"; id: number; data: { mode: "all" | "nonTerminal" } }
   | { type: "saveParamTpl"; id: number; data: { name: string; params: [string, string][] } }
   | { type: "deleteParamTpl"; id: number; data: { id: number } }
+  | { type: "reorderParamTpl"; id: number; data: { ids: number[] } }
   | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
   | { type: "saveActiveTpl"; data: { name: string } }
   | { type: "togglePre"; id: number; data: { jobPath: string } }
@@ -118,6 +119,11 @@ export class WebviewProvider {
       }
       case "deleteParamTpl": {
         this.state.deleteParamTemplate(m.data.id);
+        this.reply(m.id, this.paramResult());
+        break;
+      }
+      case "reorderParamTpl": {
+        this.state.reorderParamTemplates(m.data.ids);
         this.reply(m.id, this.paramResult());
         break;
       }

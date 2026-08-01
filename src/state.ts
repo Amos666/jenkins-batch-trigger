@@ -592,6 +592,23 @@ export class StateService {
     this.notifyTree();
   }
 
+  /** Reorder param templates to match the given id sequence (drag & drop). */
+  reorderParamTemplates(ids: number[]): void {
+    const byId = new Map(this.paramTemplates.map((t) => [t.id, t]));
+    const ordered: ParamTemplate[] = [];
+    for (const id of ids) {
+      const tpl = byId.get(id);
+      if (tpl) {
+        ordered.push(tpl);
+        byId.delete(id);
+      }
+    }
+    for (const tpl of byId.values()) ordered.push(tpl);
+    this.paramTemplates = ordered;
+    this.store.saveParamTemplates(this.paramTemplates);
+    this.notifyTree();
+  }
+
   /** Overwrite the Default template (id=0) with new params. */
   overwriteDefaultTpl(params: [string, string][]): void {
     const def = this.paramTemplates.find((t) => t.id === 0);

@@ -10,3 +10,4 @@ tsconfig.json
 设计说明.md
 debug.log
 test-*.js
+vscode-stub*.js
