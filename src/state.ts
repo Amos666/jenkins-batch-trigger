@@ -675,8 +675,13 @@ export class StateService {
       let queueUrl: string | undefined;
       try {
         queueUrl = await this.client.triggerBuild(node.jobPath, effectiveParams);
+        this.logAction(
+          t("state.triggerOk", { path: pipelineId, queue: queueUrl || "(no queue url)" })
+        );
       } catch (e) {
-        errors.push(`${node.name}: ${(e as Error).message}`);
+        const msg = `${node.name}: ${(e as Error).message}`;
+        this.logAction(t("state.triggerFailedLog", { path: pipelineId, error: msg }));
+        errors.push(msg);
         continue;
       }
 
@@ -684,6 +689,7 @@ export class StateService {
       // Post-actions run on ANY terminal result (success/failure/aborted), so we
       // always watch when post is enabled, regardless of expected outcome.
       if (postEnabled && cfg.post_actions.length > 0) {
+        this.logAction(t("state.postWatchRegister", { path: pipelineId, queue: queueUrl || "(none)" }));
         this.poller.watch(pipelineId, node.jobPath, queueUrl || null, effectiveParams);
       }
     }
