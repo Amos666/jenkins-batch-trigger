@@ -206,7 +206,19 @@ export class JenkinsClient {
         res.on("data", (c) => (data += c));
         res.on("end", () => {
           const status = res.statusCode || 0;
-          if (status >= 300 && status < 400 && res.headers.location && redirects < 5) {
+          // Auto-follow 3xx redirects ONLY for safe/idempotent methods.
+          // POST must NOT be silently downgraded to GET (which drops the body
+          // and turns buildWithParameters into a no-op GET against an HTML
+          // page). Jenkins returns 201/302 on a successful trigger; the POST
+          // caller (triggerBuild) reads res.headers.location itself.
+          const safeMethod = method === "GET" || method === "HEAD";
+          if (
+            safeMethod &&
+            status >= 300 &&
+            status < 400 &&
+            res.headers.location &&
+            redirects < 5
+          ) {
             const loc = res.headers.location;
             const location = Array.isArray(loc) ? loc[0] : loc;
             if (location) {
@@ -438,11 +450,86 @@ export class JenkinsClient {
     }`;
     const body = hasParams ? new URLSearchParams(params).toString() : undefined;
     const r = await this.req("POST", path, { body });
+
+    // Extract Location header (Jenkins returns the queue-item URL here on success).
+    const locRaw = r.headers["location"];
+    const location = Array.isArray(locRaw) ? locRaw[0] : locRaw;
+
+    const isHtmlBody =
+      !!r.body && /^\s*<(?:!doctype|html|head|body)\b/i.test(r.body);
+    const looksLikeQueueUrl =
+      !!location && /\/queue\/item\/\d+\/?/i.test(location);
+
+    // Detailed log for every trigger attempt — shows status, location, body
+    // type, and a 200-char preview so the user can see exactly what Jenkins
+    // returned (login page / error page / empty / etc.).
+    this.log(
+      `[trigger] ${fullName} → HTTP ${r.status}` +
+        (location ? ` location=${location}` : " (no location)") +
+        ` bodyType=${isHtmlBody ? "html" : r.body ? "other" : "empty"}` +
+        ` preview=${r.body.slice(0, 200)}`
+    );
+
+    // ---- Failure: explicit HTTP error ----
     if (r.status >= 400) {
-      throw new Error(t("client.triggerFailed", { name: fullName, status: r.status, body: r.body.slice(0, 200) }));
+      throw new Error(
+        t("client.triggerFailed", {
+          name: fullName,
+          status: r.status,
+          body: r.body.slice(0, 200),
+        })
+      );
     }
-    const loc = r.headers["location"];
-    return Array.isArray(loc) ? loc[0] : loc;
+
+    // ---- Success case A: 201/202 (Jenkins standard "queued" response) ----
+    // Build is definitely queued; Location may or may not be present.
+    if (r.status === 201 || r.status === 202) {
+      if (location) this.log(`[trigger] queued: ${location}`);
+      else this.log(`[trigger] ${fullName}: queued (no Location header)`);
+      return location;
+    }
+
+    // ---- Success case B: any status + Location pointing at /queue/item/<id>/ ----
+    // Covers 302/303 behind reverse proxies where Jenkins still queued the
+    // build and told us where to find it.
+    if (looksLikeQueueUrl) {
+      this.log(`[trigger] queued: ${location}`);
+      return location;
+    }
+
+    // ---- Failure: 3xx redirect to a non-queue URL ----
+    // POST was redirected somewhere that is NOT a queue item — almost always
+    // a login page, error page, or the job's main page (which means Jenkins
+    // did NOT queue the build). With the new "POST doesn't auto-follow
+    // redirects" rule in doRequest, we now see this raw 3xx instead of a
+    // misleading 200+HTML.
+    if (r.status >= 300 && r.status < 400) {
+      throw new Error(
+        t("client.triggerFailed", {
+          name: fullName,
+          status: r.status,
+          body: `redirect → ${location || "(no location)"}`,
+        })
+      );
+    }
+
+    // ---- Failure: 200 + HTML body (login/error page served by proxy) ----
+    // A real buildWithParameters never returns 200 with an HTML body.
+    if (isHtmlBody) {
+      throw new Error(
+        t("client.triggerFailed", {
+          name: fullName,
+          status: r.status,
+          body: r.body.slice(0, 200),
+        })
+      );
+    }
+
+    // ---- Success case C: 200 with empty body (some Jenkins configs) ----
+    // No Location, no HTML — Jenkins accepted the trigger but didn't tell us
+    // the queue URL. Caller will fall back to polling the queue API.
+    this.log(`[trigger] ${fullName}: accepted (status ${r.status}, will poll queue API)`);
+    return location;
   }
 
   /** Abort a running build by its number. */
