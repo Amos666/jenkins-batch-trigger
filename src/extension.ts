@@ -274,9 +274,12 @@ function registerCommands(
       }
     }),
 
-    vscode.commands.registerCommand("jenkins-batch-trigger.deleteNode", async () => {
+    vscode.commands.registerCommand("jenkins-batch-trigger.deleteNode", async (node?: TreeNode) => {
       if (deleteInProgress) return;
-      const nodes = treeView.selection;
+      // Inline/context-menu invocations pass the clicked node directly.
+      // Do NOT rely on treeView.selection alone: checkbox-enabled trees do
+      // not select rows on click, so selection is often empty or stale.
+      const nodes: readonly TreeNode[] = node ? [node] : treeView.selection;
       if (nodes.length === 0) return;
 
       deleteInProgress = true;

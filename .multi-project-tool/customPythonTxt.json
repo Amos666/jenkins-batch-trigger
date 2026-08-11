@@ -1,0 +1,25 @@
+{
+  "pythonTxtCommandTree": [
+    {
+      "id": "default-category",
+      "type": "category",
+      "name": "Default",
+      "collapsed": false,
+      "children": [
+        {
+          "id": "upper-case",
+          "type": "command",
+          "name": "转为大写",
+          "content": "import sys\n\ntext = sys.stdin.read()\nprint(text.upper())"
+        },
+        {
+          "id": "lower-case",
+          "type": "command",
+          "name": "转为小写",
+          "content": "import sys\n\ntext = sys.stdin.read()\nprint(text.lower())"
+        }
+      ]
+    }
+  ],
+  "defaultsSeeded": true
+}
