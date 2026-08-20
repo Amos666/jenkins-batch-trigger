@@ -80,8 +80,9 @@ let prevSelectedIds = new Set();
 let jobParamMap = new Map();
 // Track which job's param editor is currently expanded.
 let expandedParamJobId = null;
-// Pipeline column display level: 0=job name only, 1=parent/job, 2=grandparent/parent/job
-let pipelineDisplayLevel = 0;
+// Pipeline column display level: 0=job name only, 1=parent/job, 2=grandparent/parent/job.
+// Default to parent/job so the immediate folder context is visible at a glance.
+let pipelineDisplayLevel = 1;
 // Whether the Pipeline column width is still auto-sized (false once user drags it).
 let pipelineColAuto = true;
 // Timeout watchdog: tracks which jobs have timeout monitoring enabled.

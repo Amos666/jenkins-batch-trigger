@@ -7,12 +7,12 @@ VSCode 扩展：批量触发 Jenkins Pipeline，实时监控构建状态，支�
 | 功能 | 说明 |
 |------|------|
 | 批量触发 | 勾选多个 Pipeline，一键触发，支持全局参数 + 每 job 独立参数 |
-| 实时状态 | Running / Success / Failed / Unstable / Aborted 状态徽标，手动 + 自动刷新 |
+| 实时状态 | Running / Success / Failed / Unstable / Aborted 状态徽标，自动刷新默认开启（间隔 1 分钟，可调） |
 | 批量中止 | 一键中止所有运行中的构建 |
 | 侧边栏树 | 自定义文件夹/Job 树结构，复选框批量选择，状态感知图标 |
 | Pre/Post Actions | 触发前注入参数、完成后提取日志写回状态，实现跨运行闭环 |
 | 构建轮询 | 单定时器 + 指数退避，自动检测构建完成并执行 Post-Actions |
-| 参数模板 | 保存/复用参数组合，快速切换不同环境配置 |
+| 参数模板 | 保存/复用参数组合，支持分类管理与拖拽归类，快速切换不同环境配置 |
 | 状态栏 | 底部显示运行/队列/失败计数，点击打开 Output Channel |
 
 ## 安装
@@ -58,10 +58,10 @@ npx @vscode/vsce package --no-dependencies
 ### 第三步：批量触发
 
 1. 在侧边栏树中勾选要触发的 Job（支持文件夹级联选择）
-2. 中央面板自动显示已选 Job 列表
+2. 中央面板自动显示已选 Job 列表（名称默认显示为 `上级目录/job名`，双击表头可切换层级）
 3. 点击 **参数** 按钮设置触发参数（JSON 编辑器 + KV 快捷编辑）
 4. 点击 **触发选中**，确认预览后批量触发
-5. 状态列实时更新，构建链接可直接跳转 Jenkins 页面
+5. 状态列实时更新（自动刷新默认开启，间隔 1 分钟），构建链接可直接跳转 Jenkins 页面
 
 ## 使用详解
 
@@ -79,6 +79,16 @@ npx @vscode/vsce package --no-dependencies
 | 启用 Actions | 右键 Job → Toggle Pre/Post Actions（出现 ⚡ 标记） |
 | 配置 Actions | 右键已启用的 Job → Configure Actions |
 
+### 中央面板操作技巧
+
+| 功能 | 说明 |
+|------|------|
+| Pipeline 名称显示 | 默认显示 `上级目录/job名`；双击「流水线」表头循环切换：`仅 job 名` → `上级目录/job` → `上上级/上级/job` |
+| 列宽调整 | 拖动表头右边缘调整列宽（拖动后不再自动适配宽度） |
+| 自动刷新 | 默认开启、间隔 1 分钟，可勾选开关或从下拉框调整（5s / 10s / 30s / 1m / 3m / 5m）；只轮询非终态的 job，减少请求 |
+| 活动日志 | 拖拽分隔条调整高度，点标题折叠/展开，支持导出到编辑器与清除 |
+| 超时看守 | 工具栏 ⏱ 设置分钟数，超时自动中止对应 pipeline |
+
 ### 参数系统
 
 **全局批量参数**：点击工具栏「参数」按钮，支持两种编辑模式：
@@ -87,7 +97,14 @@ npx @vscode/vsce package --no-dependencies
 
 **每 Job 独立参数**：点击表格行的「✎ 参数」链接，为该 Job 设置专属参数（优先于全局参数）。
 
-**参数模板**：配置好参数后点「＋ 存为模板」，下次一键套用。
+**参数模板**：配置好参数后点「＋ 存为模板」，下次点击模板芯片一键套用；「↻ 更新当前模板」把当前参数写回所选模板。
+
+**模板分类**：
+1. 在「参数」弹框点「＋ 新建分类」创建分类（如「生产环境」「测试环境」）
+2. 把模板芯片拖到目标分类块内（或拖到该分类下的其他模板上）即完成归类
+3. 拖回「未分类」块可取消归类；分类之间可任意拖拽调整
+4. 点分类头部的 ✕ 删除分类，其中模板自动移回「未分类」
+5. 未创建分类时模板平铺显示，原有拖拽排序、套用、删除行为完全不变
 
 ### 触发预览
 
@@ -226,15 +243,17 @@ ${run.prev.id}	上次构建 ID
 | `jenkinsBatchTrigger.jenkinsUrl` | string | `""` | Jenkins 根 URL |
 | `jenkinsBatchTrigger.username` | string | `""` | Jenkins 用户名 |
 | `jenkinsBatchTrigger.trustSelfSignedCert` | boolean | `false` | 信任自签名证书 |
-| `jenkinsBatchTrigger.autoRefreshInterval` | number | `30` | 自动刷新间隔（秒，0=关闭） |
 | `jenkinsBatchTrigger.actionsEnabled` | boolean | `true` | Action 系统总开关 |
+| `jenkinsBatchTrigger.language` | string | `zh` | 界面语言（`zh` / `en`） |
+
+> 自动刷新不是配置项：由面板工具栏的「自动刷新」复选框和间隔下拉框控制，默认开启、间隔 1 分钟。
 
 ## 数据存储
 
 | 数据 | 位置 | 说明 |
 |------|------|------|
 | 树结构 + 选择 | VSCode globalState | 跨 workspace 共享 |
-| 参数模板 | VSCode globalState | 跨 workspace 共享 |
+| 参数模板 + 模板分类 | VSCode globalState | 跨 workspace 共享 |
 | Action 配置 | `globalStorageUri/default-config.json` | 所有 Pipeline 共用 |
 | Pipeline 状态 | `globalStorageUri/states/<id>.json` | 按 Pipeline 隔离 |
 | API Token | VSCode SecretStorage | 加密存储 |
@@ -264,7 +283,7 @@ media/
 ## 常见问题
 
 **Q: 触发后状态一直显示 Running？**
-A: 检查 Jenkins 连接是否正常。自动刷新默认 30 秒一次，也可手动点刷新按钮。
+A: 检查 Jenkins 连接是否正常。自动刷新默认开启（1 分钟一次），也可在工具栏调整间隔或手动点刷新按钮。
 
 **Q: Pre-Action 读取状态为空？**
 A: 首次触发时状态文件不存在，设置 `on_missing: "skip"` 或 `"fallback"` 提供默认值。
