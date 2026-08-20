@@ -74,6 +74,8 @@ export interface ParamTemplate {
   id: number;
   name: string;
   params: [string, string][];
+  /** Category name for grouping templates; empty/undefined = uncategorized. */
+  category?: string;
 }
 
 /** Create an empty tree config. */

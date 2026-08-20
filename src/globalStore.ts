@@ -4,6 +4,7 @@ import { TreeConfig, emptyTreeConfig, ParamTemplate } from "./types";
 const KEY_TREE = "jenkinsBatchTrigger.tree";
 const KEY_PARAMS = "jenkinsBatchTrigger.paramTemplates";
 const KEY_ACTIVE_TPL = "jenkinsBatchTrigger.activeTpl";
+const KEY_TPL_CATEGORIES = "jenkinsBatchTrigger.paramTplCategories";
 
 /**
  * Global storage backed by VSCode globalState.
@@ -43,6 +44,16 @@ export class GlobalStore {
 
   saveParamTemplates(templates: ParamTemplate[]): void {
     this.context.globalState.update(KEY_PARAMS, templates);
+  }
+
+  /* ---------------- param template categories ---------------- */
+
+  loadTplCategories(): string[] {
+    return this.context.globalState.get<string[]>(KEY_TPL_CATEGORIES) || [];
+  }
+
+  saveTplCategories(categories: string[]): void {
+    this.context.globalState.update(KEY_TPL_CATEGORIES, categories);
   }
 
   /* ---------------- active param template ---------------- */

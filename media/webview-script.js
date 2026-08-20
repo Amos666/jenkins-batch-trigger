@@ -66,7 +66,7 @@ const STATUS_KEY = { running:"webview.status.running", success:"webview.status.s
 const BADGE = { running:"b-running", success:"b-success", failed:"b-failed", unstable:"b-unstable", aborted:"b-aborted", idle:"b-idle", unknown:"b-idle" };
 
 /* ============ 状态 ============ */
-let STATE = { selectedNodes: [], paramTemplates: [], preEnabledPipelines: [], postEnabledPipelines: [] };
+let STATE = { selectedNodes: [], paramTemplates: [], paramTplCategories: [], preEnabledPipelines: [], postEnabledPipelines: [] };
 let search = "";
 let statusFilter = "all";
 let params = [];
@@ -118,6 +118,7 @@ function applySnapshot(s) {
     STATE.selectedNodes = s.selectedNodes;
   }
   if (s.paramTemplates) STATE.paramTemplates = s.paramTemplates;
+  if (s.paramTplCategories) STATE.paramTplCategories = s.paramTplCategories;
   if (s.preEnabledPipelines) STATE.preEnabledPipelines = s.preEnabledPipelines;
   if (s.postEnabledPipelines) STATE.postEnabledPipelines = s.postEnabledPipelines;
   render();
@@ -428,78 +429,161 @@ function renderKv() {
 let dragTplId = null;
 function clearDropMarkers(box) {
   box.querySelectorAll(".chip").forEach((x) => x.classList.remove("drop-before", "drop-after"));
+  box.querySelectorAll(".tpl-cat").forEach((x) => x.classList.remove("drop-hover"));
 }
-function persistTplOrder() {
-  rpc("reorderParamTpl", { ids: STATE.paramTemplates.map((x) => x.id) }).then((r) => {
-    if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
+// Apply a param-template RPC result (templates + categories) and re-render.
+function applyParamResult(r) {
+  if (r && r.paramTemplates) {
+    STATE.paramTemplates = r.paramTemplates;
+    if (r.paramTplCategories) STATE.paramTplCategories = r.paramTplCategories;
+    renderParamTpl();
+  }
+}
+// Persist template order (and, when a template was moved, its category too).
+function persistTplChange(movedTpl) {
+  const first = movedTpl
+    ? rpc("setTplCategory", { id: movedTpl.id, category: movedTpl.category || "" })
+    : Promise.resolve(null);
+  first
+    .then(() => rpc("reorderParamTpl", { ids: STATE.paramTemplates.map((x) => x.id) }))
+    .then((r) => applyParamResult(r));
+}
+// Build one draggable template chip. `box` is the paramTplList container,
+// used for clearing drop markers.
+function buildTplChip(tpl, box) {
+  const c = document.createElement("span");
+  const isDefault = tpl.id === 0;
+  const isActive = tpl.name === activeParamTpl;
+  c.className = "chip" + (isDefault ? " default" : "") + (isActive ? " on" : "");
+  c.innerHTML = escapeHtml(tpl.name) + (isDefault ? "" : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
+  // Drag to reorder templates (and move them between categories).
+  c.draggable = true;
+  c.addEventListener("dragstart", (e) => {
+    dragTplId = tpl.id;
+    e.dataTransfer.effectAllowed = "move";
+    try { e.dataTransfer.setData("text/plain", String(tpl.id)); } catch (_) {}
+    c.classList.add("dragging");
   });
+  c.addEventListener("dragend", () => {
+    dragTplId = null;
+    clearDropMarkers(box);
+    c.classList.remove("dragging");
+  });
+  c.addEventListener("dragover", (e) => {
+    if (dragTplId === null || dragTplId === tpl.id) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = "move";
+    const rect = c.getBoundingClientRect();
+    const before = e.clientX < rect.left + rect.width / 2;
+    clearDropMarkers(box);
+    c.classList.add(before ? "drop-before" : "drop-after");
+  });
+  c.addEventListener("dragleave", () => { c.classList.remove("drop-before", "drop-after"); });
+  c.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    clearDropMarkers(box);
+    if (dragTplId === null || dragTplId === tpl.id) return;
+    const rect = c.getBoundingClientRect();
+    const before = e.clientX < rect.left + rect.width / 2;
+    const arr = STATE.paramTemplates;
+    const from = arr.findIndex((x) => x.id === dragTplId);
+    const to = arr.findIndex((x) => x.id === tpl.id);
+    if (from < 0 || to < 0 || from === to) return;
+    const [moved] = arr.splice(from, 1);
+    const targetIdx = from < to ? to - 1 : to;
+    arr.splice(before ? targetIdx : targetIdx + 1, 0, moved);
+    // Dropping onto a chip in another category adopts that category.
+    if (tpl.category) moved.category = tpl.category; else delete moved.category;
+    dragTplId = null;
+    renderParamTpl();
+    persistTplChange(moved);
+  });
+  c.onclick = (e) => {
+    // Delete template (non-default only).
+    if (e.target.dataset.ptdel) {
+      e.stopPropagation();
+      rpc("deleteParamTpl", { id: +e.target.dataset.ptdel }).then(applyParamResult);
+      return;
+    }
+    // Apply template: load its params and mark as active.
+    params = tpl.params.map((p) => p.slice()); renderKv();
+    activeParamTpl = tpl.name; onParamsChanged(); renderParamTpl(); toast(t("webview.tplApplied", {name: tpl.name}));
+    rpc("saveActiveTpl", { name: tpl.name });
+  };
+  return c;
+}
+// Build a category group ("" = uncategorized). The whole group is a drop
+// target: dropping a chip here moves it to the end of that category.
+function buildTplCatGroup(cat, list, box) {
+  const sec = document.createElement("div");
+  sec.className = "tpl-cat" + (cat ? "" : " uncat");
+  const head = document.createElement("div");
+  head.className = "tpl-cat-head";
+  head.innerHTML = '<span class="cat-name">' + escapeHtml(cat || t("webview.uncategorized")) + '</span>' +
+    '<span class="cat-count">' + list.length + '</span>' +
+    (cat ? '<span class="cat-del" title="' + escapeHtml(t("webview.catDeleteTitle")) + '">✕</span>' : '');
+  if (cat) {
+    head.querySelector(".cat-del").onclick = (e) => {
+      e.stopPropagation();
+      rpc("deleteTplCategory", { name: cat }).then((r) => {
+        applyParamResult(r);
+        toast(t("webview.catDeleted", {name: cat}));
+      });
+    };
+  }
+  const body = document.createElement("div");
+  body.className = "tpl-cat-body";
+  if (list.length === 0) {
+    body.innerHTML = '<span class="hint" style="margin:0">' + t("webview.catEmpty") + '</span>';
+  } else {
+    list.forEach((tpl) => body.appendChild(buildTplChip(tpl, box)));
+  }
+  sec.appendChild(head);
+  sec.appendChild(body);
+  sec.addEventListener("dragover", (e) => {
+    if (dragTplId === null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    clearDropMarkers(box);
+    sec.classList.add("drop-hover");
+  });
+  sec.addEventListener("dragleave", (e) => {
+    if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop-hover");
+  });
+  sec.addEventListener("drop", (e) => {
+    e.preventDefault();
+    clearDropMarkers(box);
+    if (dragTplId === null) return;
+    const arr = STATE.paramTemplates;
+    const from = arr.findIndex((x) => x.id === dragTplId);
+    if (from < 0) return;
+    const [moved] = arr.splice(from, 1);
+    if (cat) moved.category = cat; else delete moved.category;
+    arr.push(moved);
+    dragTplId = null;
+    renderParamTpl();
+    persistTplChange(moved);
+  });
+  return sec;
 }
 function renderParamTpl() {
   const box = document.getElementById("paramTplList");
   if (!box) return;
   box.innerHTML = STATE.paramTemplates.length ? "" : '<span class="hint" style="margin:0">' + t("webview.noTemplates") + '</span>';
-  STATE.paramTemplates.forEach((tpl) => {
-    const c = document.createElement("span");
-    const isDefault = tpl.id === 0;
-    const isActive = tpl.name === activeParamTpl;
-    c.className = "chip" + (isDefault ? " default" : "") + (isActive ? " on" : "");
-    c.innerHTML = tpl.name + (isDefault ? "" : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
-    // Drag to reorder templates.
-    c.draggable = true;
-    c.addEventListener("dragstart", (e) => {
-      dragTplId = tpl.id;
-      e.dataTransfer.effectAllowed = "move";
-      try { e.dataTransfer.setData("text/plain", String(tpl.id)); } catch (_) {}
-      c.classList.add("dragging");
-    });
-    c.addEventListener("dragend", () => {
-      dragTplId = null;
-      clearDropMarkers(box);
-      c.classList.remove("dragging");
-    });
-    c.addEventListener("dragover", (e) => {
-      if (dragTplId === null || dragTplId === tpl.id) return;
-      e.preventDefault();
-      e.dataTransfer.dropEffect = "move";
-      const rect = c.getBoundingClientRect();
-      const before = e.clientX < rect.left + rect.width / 2;
-      clearDropMarkers(box);
-      c.classList.add(before ? "drop-before" : "drop-after");
-    });
-    c.addEventListener("dragleave", () => { c.classList.remove("drop-before", "drop-after"); });
-    c.addEventListener("drop", (e) => {
-      e.preventDefault();
-      clearDropMarkers(box);
-      if (dragTplId === null || dragTplId === tpl.id) return;
-      const rect = c.getBoundingClientRect();
-      const before = e.clientX < rect.left + rect.width / 2;
-      const arr = STATE.paramTemplates;
-      const from = arr.findIndex((x) => x.id === dragTplId);
-      const to = arr.findIndex((x) => x.id === tpl.id);
-      if (from < 0 || to < 0 || from === to) return;
-      const [moved] = arr.splice(from, 1);
-      const targetIdx = from < to ? to - 1 : to;
-      arr.splice(before ? targetIdx : targetIdx + 1, 0, moved);
-      dragTplId = null;
-      renderParamTpl();
-      persistTplOrder();
-    });
-    c.onclick = (e) => {
-      // Delete template (non-default only).
-      if (e.target.dataset.ptdel) {
-        e.stopPropagation();
-        rpc("deleteParamTpl", { id: +e.target.dataset.ptdel }).then((r) => {
-          if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
-        });
-        return;
-      }
-      // Apply template: load its params and mark as active.
-      params = tpl.params.map((p) => p.slice()); renderKv();
-      activeParamTpl = tpl.name; onParamsChanged(); renderParamTpl(); toast(t("webview.tplApplied", {name: tpl.name}));
-      rpc("saveActiveTpl", { name: tpl.name });
-    };
-    box.appendChild(c);
-  });
+  if (!STATE.paramTemplates.length) return;
+  const cats = STATE.paramTplCategories || [];
+  if (!cats.length) {
+    // No categories yet: flat rendering (original behavior).
+    STATE.paramTemplates.forEach((tpl) => box.appendChild(buildTplChip(tpl, box)));
+    return;
+  }
+  // Uncategorized first, then categories in saved order. Templates whose
+  // category no longer exists fall back to uncategorized.
+  const groups = [["", STATE.paramTemplates.filter((x) => !x.category || !cats.includes(x.category))]];
+  cats.forEach((cat) => groups.push([cat, STATE.paramTemplates.filter((x) => x.category === cat)]));
+  groups.forEach(([cat, list]) => box.appendChild(buildTplCatGroup(cat, list, box)));
 }
 
 /* ============ 工具栏事件 ============ */
@@ -704,7 +788,7 @@ document.getElementById("btnUpdateParamTpl").onclick = () => {
     ? rpc("overwriteDefaultTpl", { params: tp })
     : rpc("saveParamTpl", { name: tpl.name, params: tp });
   req.then((r) => {
-    if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
+    applyParamResult(r);
     renderParamBtn();
     toast(t("webview.tplUpdated", { name: tpl.name }));
   });
@@ -721,13 +805,35 @@ document.getElementById("btnParamTplSave").onclick = () => {
   const name = document.getElementById("paramTplName").value.trim();
   if (!name) { toast(t("webview.tplNameRequired")); return; }
   rpc("saveParamTpl", { name, params: params.map((p) => p.slice()) }).then((r) => {
-    if (r && r.paramTemplates) { STATE.paramTemplates = r.paramTemplates; renderParamTpl(); }
+    applyParamResult(r);
     document.getElementById("paramTplOverlay").classList.remove("show");
     activeParamTpl = name; renderParamBtn();
     toast(t("webview.tplSaved", {name})); logMsg(t("webview.tplCreated", {name}), "ok");
     rpc("saveActiveTpl", { name });
   });
 };
+
+/* ---- 模板分类:新建/保存弹框 ---- */
+document.getElementById("btnNewTplCat").onclick = () => {
+  document.getElementById("tplCatName").value = "";
+  document.getElementById("tplCatOverlay").classList.add("show");
+  setTimeout(() => document.getElementById("tplCatName").focus(), 50);
+};
+document.getElementById("btnTplCatCancel").onclick = () => document.getElementById("tplCatOverlay").classList.remove("show");
+function submitNewTplCat() {
+  const name = document.getElementById("tplCatName").value.trim();
+  if (!name) { toast(t("webview.catNameEmpty")); return; }
+  if ((STATE.paramTplCategories || []).includes(name)) { toast(t("webview.catDuplicate", {name})); return; }
+  rpc("addTplCategory", { name }).then((r) => {
+    applyParamResult(r);
+    document.getElementById("tplCatOverlay").classList.remove("show");
+    toast(t("webview.catCreated", {name}));
+  });
+}
+document.getElementById("btnTplCatSave").onclick = submitNewTplCat;
+document.getElementById("tplCatName").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); submitNewTplCat(); }
+});
 document.getElementById("btnParamSave").onclick = () => {
   if (getTriggerParams() === null) { toast(t("webview.paramJsonInvalid")); return; }
   document.getElementById("paramOverlay").classList.remove("show");
@@ -998,6 +1104,7 @@ document.addEventListener("mouseup", () => {
 (async function init() {
   const cfg = await rpc("load", {});
   applySnapshot(cfg);
+  if (document.getElementById("autoChk").checked) { startAutoRefresh(); }
   if (cfg.activeTpl) {
     const tpl = STATE.paramTemplates.find((t) => t.name === cfg.activeTpl);
     if (tpl) {

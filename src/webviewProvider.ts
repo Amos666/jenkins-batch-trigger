@@ -13,6 +13,9 @@ type InMsg =
   | { type: "saveParamTpl"; id: number; data: { name: string; params: [string, string][] } }
   | { type: "deleteParamTpl"; id: number; data: { id: number } }
   | { type: "reorderParamTpl"; id: number; data: { ids: number[] } }
+  | { type: "addTplCategory"; id: number; data: { name: string } }
+  | { type: "deleteTplCategory"; id: number; data: { name: string } }
+  | { type: "setTplCategory"; id: number; data: { id: number; category: string } }
   | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
   | { type: "saveActiveTpl"; data: { name: string } }
   | { type: "togglePre"; id: number; data: { jobPath: string } }
@@ -127,6 +130,21 @@ export class WebviewProvider {
         this.reply(m.id, this.paramResult());
         break;
       }
+      case "addTplCategory": {
+        this.state.addTplCategory(m.data.name);
+        this.reply(m.id, this.paramResult());
+        break;
+      }
+      case "deleteTplCategory": {
+        this.state.deleteTplCategory(m.data.name);
+        this.reply(m.id, this.paramResult());
+        break;
+      }
+      case "setTplCategory": {
+        this.state.setTplCategory(m.data.id, m.data.category);
+        this.reply(m.id, this.paramResult());
+        break;
+      }
       case "overwriteDefaultTpl": {
         this.state.overwriteDefaultTpl(m.data.params);
         this.reply(m.id, this.paramResult());
@@ -181,8 +199,8 @@ export class WebviewProvider {
   }
 
   /** Snapshot focusing on param templates. */
-  private paramResult(): { paramTemplates: ParamTemplate[] } {
-    return { paramTemplates: this.state.paramTemplates };
+  private paramResult(): { paramTemplates: ParamTemplate[]; paramTplCategories: string[] } {
+    return { paramTemplates: this.state.paramTemplates, paramTplCategories: this.state.paramTplCategories };
   }
 
   private reply(id: number, data: unknown): void {

@@ -13,6 +13,7 @@ import { t } from "./i18n";
 export interface Snapshot {
   selectedNodes: TreeNode[];
   paramTemplates: ParamTemplate[];
+  paramTplCategories: string[];
   preEnabledPipelines: string[];
   postEnabledPipelines: string[];
 }
@@ -40,6 +41,8 @@ export class StateService {
   /** IDs of currently checked job nodes. */
   selected = new Set<string>();
   paramTemplates: ParamTemplate[];
+  /** Ordered list of param-template category names. */
+  paramTplCategories: string[];
   /** Current sidebar filter text (empty = show all). */
   filterText = "";
 
@@ -67,6 +70,7 @@ export class StateService {
     // Forward all Jenkins network activity to the webview log panel.
     this.client.logger = (msg) => this.pushLog(msg);
     this.paramTemplates = store.loadParamTemplates();
+    this.paramTplCategories = store.loadTplCategories();
     this.picker = new JobPickerPanel();
 
     // Action system initialization.
@@ -108,6 +112,7 @@ export class StateService {
     return {
       selectedNodes,
       paramTemplates: this.paramTemplates,
+      paramTplCategories: this.paramTplCategories,
       preEnabledPipelines: [...this.preEnabledPipelines],
       postEnabledPipelines: [...this.postEnabledPipelines],
     };
@@ -605,6 +610,45 @@ export class StateService {
     }
     for (const tpl of byId.values()) ordered.push(tpl);
     this.paramTemplates = ordered;
+    this.store.saveParamTemplates(this.paramTemplates);
+    this.notifyTree();
+  }
+
+  /** Create a new template category. Returns false if it already exists. */
+  addTplCategory(name: string): boolean {
+    const trimmed = name.trim();
+    if (!trimmed || this.paramTplCategories.includes(trimmed)) {
+      return false;
+    }
+    this.paramTplCategories.push(trimmed);
+    this.store.saveTplCategories(this.paramTplCategories);
+    this.notifyTree();
+    return true;
+  }
+
+  /** Delete a category; templates in it move back to uncategorized. */
+  deleteTplCategory(name: string): void {
+    if (!this.paramTplCategories.includes(name)) return;
+    this.paramTplCategories = this.paramTplCategories.filter((c) => c !== name);
+    this.store.saveTplCategories(this.paramTplCategories);
+    for (const tpl of this.paramTemplates) {
+      if (tpl.category === name) {
+        delete tpl.category;
+      }
+    }
+    this.store.saveParamTemplates(this.paramTemplates);
+    this.notifyTree();
+  }
+
+  /** Assign a template to a category (empty string = uncategorized). */
+  setTplCategory(id: number, category: string): void {
+    const tpl = this.paramTemplates.find((t) => t.id === id);
+    if (!tpl) return;
+    if (category) {
+      tpl.category = category;
+    } else {
+      delete tpl.category;
+    }
     this.store.saveParamTemplates(this.paramTemplates);
     this.notifyTree();
   }

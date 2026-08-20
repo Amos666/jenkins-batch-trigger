@@ -76,6 +76,22 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .tpl-saved .chip.dragging{opacity:.4;cursor:grabbing;}
 .tpl-saved .chip.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
 .tpl-saved .chip.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
+/* Template category groups (shown once the user creates a category). */
+.tpl-saved .tpl-cat{flex:1 1 100%;border:1px solid var(--border,#333);border-radius:6px;
+  background:rgba(255,255,255,0.02);overflow:hidden;}
+.tpl-saved .tpl-cat-head{display:flex;align-items:center;gap:7px;padding:4px 10px;
+  background:var(--bg-alt,#1e1e1e);border-bottom:1px solid var(--border,#333);
+  font-size:11px;user-select:none;}
+.tpl-saved .tpl-cat-head .cat-name{font-weight:600;color:var(--text,#ddd);}
+.tpl-saved .tpl-cat-head .cat-count{color:var(--text-dim,#888);background:rgba(255,255,255,0.06);
+  border-radius:8px;padding:0 7px;font-size:10px;line-height:15px;}
+.tpl-saved .tpl-cat-head .cat-del{margin-left:auto;color:var(--red,#f48771);cursor:pointer;
+  font-size:10px;padding:0 2px;opacity:.75;}
+.tpl-saved .tpl-cat-head .cat-del:hover{opacity:1;}
+.tpl-saved .tpl-cat-body{display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+  padding:7px 10px;min-height:32px;}
+.tpl-saved .tpl-cat.drop-hover{border-color:var(--accent,#4fc3f7);}
+.tpl-saved .tpl-cat.drop-hover .tpl-cat-head{background:rgba(79,195,247,0.12);}
 /* Resizable log panel — uses a draggable resizer bar instead of CSS resize
    because resize:vertical does not work reliably on flex column children.
    Override ALL conflicting wireframe properties (display:none, max-height:110px). */
@@ -103,7 +119,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
         <span class="chip" data-st="failed"><span class="sw" style="background:var(--red)"></span><span data-i18n="webview.status.failed">${t("webview.status.failed")}</span></span>
       </div>
       <div class="divider"></div>
-      <div class="autoref"><label><input type="checkbox" id="autoChk" /> <span data-i18n="webview.html.autoRefresh">${t("webview.html.autoRefresh")}</span></label>
+      <div class="autoref"><label><input type="checkbox" id="autoChk" checked /> <span data-i18n="webview.html.autoRefresh">${t("webview.html.autoRefresh")}</span></label>
         <select id="autoInt"><option value="5">5s</option><option value="10">10s</option><option value="30">30s</option><option value="60" selected>1m</option><option value="180">3m</option><option value="300">5m</option></select>
       </div>
       <div class="spacer"></div>
@@ -153,6 +169,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
         <span style="color:var(--text-dim);font-size:11px;align-self:center;" data-i18n="webview.html.tplLabel">${t("webview.html.tplLabel")}</span>
         <button class="btn sm" id="btnUpdateParamTpl" style="margin-left:auto" title="${t("webview.html.updateTplTitle")}" data-i18n="webview.html.updateTpl">${t("webview.html.updateTpl")}</button>
         <button class="btn sm" id="btnSaveParamTpl" data-i18n="webview.html.saveTpl">${t("webview.html.saveTpl")}</button>
+        <button class="btn sm" id="btnNewTplCat" data-i18n-title="webview.html.newCatTitle" data-i18n="webview.html.newCat" title="${t("webview.html.newCatTitle")}">${t("webview.html.newCat")}</button>
       </div>
       <div class="tpl-saved" id="paramTplList"></div>
       <div class="param-split">
@@ -185,6 +202,20 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
     <div class="foot">
       <button class="btn" id="btnParamTplCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
       <button class="btn primary" id="btnParamTplSave" data-i18n="webview.html.saveTplBtn">${t("webview.html.saveTplBtn")}</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="tplCatOverlay">
+  <div class="modal">
+    <h3 data-i18n="webview.html.catModalTitle">${t("webview.html.catModalTitle")}</h3>
+    <div class="body">
+      <div class="field"><label data-i18n="webview.html.catNameLabel">${t("webview.html.catNameLabel")}</label><input type="text" id="tplCatName" data-i18n-placeholder="webview.html.catNamePlaceholder" placeholder="${t("webview.html.catNamePlaceholder")}" /></div>
+      <div class="hint" data-i18n="webview.html.catHint">${t("webview.html.catHint")}</div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnTplCatCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnTplCatSave" data-i18n="webview.html.saveCatBtn">${t("webview.html.saveCatBtn")}</button>
     </div>
   </div>
 </div>
