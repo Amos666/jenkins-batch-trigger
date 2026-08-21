@@ -92,6 +92,12 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
   padding:7px 10px;min-height:32px;}
 .tpl-saved .tpl-cat.drop-hover{border-color:var(--accent,#4fc3f7);}
 .tpl-saved .tpl-cat.drop-hover .tpl-cat-head{background:rgba(79,195,247,0.12);}
+/* Drag the category header to reorder categories vertically. */
+.tpl-saved .tpl-cat-head.cat-draggable{cursor:grab;}
+.tpl-saved .tpl-cat-head.cat-draggable:active{cursor:grabbing;}
+.tpl-saved .tpl-cat.cat-dragging{opacity:.5;}
+.tpl-saved .tpl-cat.cat-drop-before{box-shadow:0 -2px 0 0 var(--accent,#4fc3f7);}
+.tpl-saved .tpl-cat.cat-drop-after{box-shadow:0 2px 0 0 var(--accent,#4fc3f7);}
 /* Resizable log panel — uses a draggable resizer bar instead of CSS resize
    because resize:vertical does not work reliably on flex column children.
    Override ALL conflicting wireframe properties (display:none, max-height:110px). */

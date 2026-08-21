@@ -370,6 +370,7 @@ export const zh: Record<string, string> = {
   "webview.catDuplicate": "分类已存在：{name}",
   "webview.catDeleted": "已删除分类：{name}（模板已移回未分类）",
   "webview.catDeleteTitle": "删除该分类（模板将移回未分类）",
+  "webview.catDragTitle": "拖拽调整分类顺序",
   "webview.paramJsonInvalid": "参数 JSON 无效，请检查左侧编辑器",
   "webview.paramsSaved": "已保存 {count} 个参数",
   "webview.noPipelineSelected": "请先在左侧树中勾选并在列表中选中要触发的 pipeline",

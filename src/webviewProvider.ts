@@ -16,6 +16,7 @@ type InMsg =
   | { type: "addTplCategory"; id: number; data: { name: string } }
   | { type: "deleteTplCategory"; id: number; data: { name: string } }
   | { type: "setTplCategory"; id: number; data: { id: number; category: string } }
+  | { type: "reorderTplCategories"; id: number; data: { names: string[] } }
   | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
   | { type: "saveActiveTpl"; data: { name: string } }
   | { type: "togglePre"; id: number; data: { jobPath: string } }
@@ -142,6 +143,11 @@ export class WebviewProvider {
       }
       case "setTplCategory": {
         this.state.setTplCategory(m.data.id, m.data.category);
+        this.reply(m.id, this.paramResult());
+        break;
+      }
+      case "reorderTplCategories": {
+        this.state.reorderTplCategories(m.data.names);
         this.reply(m.id, this.paramResult());
         break;
       }

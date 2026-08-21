@@ -653,6 +653,18 @@ export class StateService {
     this.notifyTree();
   }
 
+  /** Reorder categories to match the given name sequence (drag & drop). */
+  reorderTplCategories(names: string[]): void {
+    const known = new Set(this.paramTplCategories);
+    const ordered = names.filter((n) => known.has(n));
+    for (const n of this.paramTplCategories) {
+      if (!ordered.includes(n)) ordered.push(n);
+    }
+    this.paramTplCategories = ordered;
+    this.store.saveTplCategories(ordered);
+    this.notifyTree();
+  }
+
   /** Overwrite the Default template (id=0) with new params. */
   overwriteDefaultTpl(params: [string, string][]): void {
     const def = this.paramTemplates.find((t) => t.id === 0);

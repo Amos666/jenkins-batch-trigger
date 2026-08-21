@@ -428,9 +428,11 @@ function renderKv() {
   });
 }
 let dragTplId = null;
+// Name of the category currently being dragged for reordering (null = none).
+let dragCatName = null;
 function clearDropMarkers(box) {
   box.querySelectorAll(".chip").forEach((x) => x.classList.remove("drop-before", "drop-after"));
-  box.querySelectorAll(".tpl-cat").forEach((x) => x.classList.remove("drop-hover"));
+  box.querySelectorAll(".tpl-cat").forEach((x) => x.classList.remove("drop-hover", "cat-drop-before", "cat-drop-after"));
 }
 // Apply a param-template RPC result (templates + categories) and re-render.
 function applyParamResult(r) {
@@ -482,6 +484,7 @@ function buildTplChip(tpl, box) {
   });
   c.addEventListener("dragleave", () => { c.classList.remove("drop-before", "drop-after"); });
   c.addEventListener("drop", (e) => {
+    if (dragCatName !== null) return; // category reorder: let it bubble to the group
     e.preventDefault();
     e.stopPropagation();
     clearDropMarkers(box);
@@ -533,6 +536,21 @@ function buildTplCatGroup(cat, list, box) {
         toast(t("webview.catDeleted", {name: cat}));
       });
     };
+    // Drag the category header to reorder categories vertically.
+    head.draggable = true;
+    head.classList.add("cat-draggable");
+    head.title = t("webview.catDragTitle");
+    head.addEventListener("dragstart", (e) => {
+      dragCatName = cat;
+      e.dataTransfer.effectAllowed = "move";
+      try { e.dataTransfer.setData("text/plain", "cat:" + cat); } catch (_) {}
+      sec.classList.add("cat-dragging");
+    });
+    head.addEventListener("dragend", () => {
+      dragCatName = null;
+      clearDropMarkers(box);
+      sec.classList.remove("cat-dragging");
+    });
   }
   const body = document.createElement("div");
   body.className = "tpl-cat-body";
@@ -544,6 +562,17 @@ function buildTplCatGroup(cat, list, box) {
   sec.appendChild(head);
   sec.appendChild(body);
   sec.addEventListener("dragover", (e) => {
+    // Category reorder: show a before/after line on the hovered group.
+    if (dragCatName !== null) {
+      if (!cat || dragCatName === cat) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      clearDropMarkers(box);
+      const rect = sec.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      sec.classList.add(before ? "cat-drop-before" : "cat-drop-after");
+      return;
+    }
     if (dragTplId === null) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
@@ -551,9 +580,27 @@ function buildTplCatGroup(cat, list, box) {
     sec.classList.add("drop-hover");
   });
   sec.addEventListener("dragleave", (e) => {
-    if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop-hover");
+    if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop-hover", "cat-drop-before", "cat-drop-after");
   });
   sec.addEventListener("drop", (e) => {
+    // Category reorder: insert the dragged category before/after this one.
+    if (dragCatName !== null) {
+      e.preventDefault();
+      clearDropMarkers(box);
+      if (!cat || dragCatName === cat) return;
+      const rect = sec.getBoundingClientRect();
+      const before = e.clientY < rect.top + rect.height / 2;
+      const cats = STATE.paramTplCategories;
+      const from = cats.indexOf(dragCatName);
+      if (from < 0 || !cats.includes(cat)) return;
+      cats.splice(from, 1);
+      const to = cats.indexOf(cat);
+      cats.splice(before ? to : to + 1, 0, dragCatName);
+      dragCatName = null;
+      renderParamTpl();
+      rpc("reorderTplCategories", { names: cats.slice() }).then(applyParamResult);
+      return;
+    }
     e.preventDefault();
     clearDropMarkers(box);
     if (dragTplId === null) return;

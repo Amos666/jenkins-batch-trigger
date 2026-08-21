@@ -370,6 +370,7 @@ export const en: Record<string, string> = {
   "webview.catDuplicate": "Category already exists: {name}",
   "webview.catDeleted": "Deleted category: {name} (templates moved back to Uncategorized)",
   "webview.catDeleteTitle": "Delete this category (templates move back to Uncategorized)",
+  "webview.catDragTitle": "Drag to reorder categories",
   "webview.paramJsonInvalid": "Invalid params JSON, check the editor",
   "webview.paramsSaved": "Saved {count} params",
   "webview.noPipelineSelected": "Please select pipelines in the sidebar and check them in the list",
