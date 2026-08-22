@@ -13,6 +13,7 @@ VSCode 扩展：批量触发 Jenkins Pipeline，实时监控构建状态，支�
 | Pre/Post Actions | 触发前注入参数、完成后提取日志写回状态，实现跨运行闭环 |
 | 构建轮询 | 单定时器 + 指数退避，自动检测构建完成并执行 Post-Actions |
 | 参数模板 | 保存/复用参数组合，支持分类管理与拖拽归类，快速切换不同环境配置 |
+| 日志内容提取 | 按自定义正则/JS 脚本规则从选中 Pipeline 的构建日志批量提取内容，结果可复制/导出，可选回写参数 |
 | 状态栏 | 底部显示运行/队列/失败计数，点击打开 Output Channel |
 
 ## 安装
@@ -107,9 +108,98 @@ npx @vscode/vsce package --no-dependencies
 5. 按住分类头部（名称栏）上下拖动，可调整分类之间的显示顺序
 6. 未创建分类时模板平铺显示，原有拖拽排序、套用、删除行为完全不变
 
+**模板分类小案例**：参数模板越来越多，想按环境分组——「参数」弹框 →「＋ 新建分类」创建「生产环境」「测试环境」；把 `prod-full`、`prod-hotfix` 拖进「生产环境」，`test-smoke` 拖进「测试环境」；按住「测试环境」分类头部往上拖可让它排在前面。以后发版先展开对应分类，点一下模板芯片即可套用；误删分类也不怕，模板会自动回到「未分类」。
+
+**Pipeline 显示层级小案例**：同时管理 `pay/order` 和 `trade/order` 两个同名 job 时，列表默认显示 `上级目录/job名`（`pay/order`、`trade/order`）可避免混淆；双击「流水线」表头还能切到三层显示 `上上级/上级/job`。
+
 ### 触发预览
 
 点击「触发选中」后会弹出确认面板，显示每个 Job 实际使用的参数（全局 or 独立），确认后才真正触发。
+
+### 日志内容提取
+
+从当前选中 Pipeline 的构建日志（full log）中按自定义规则批量提取内容，适用于收集构建产物 ID、部署版本号、扫描报告链接等场景。
+
+**入口**：工具栏「🔍 日志提取」按钮（需先在列表中选中至少一个 Pipeline）。
+
+**提取规则**：
+- 点「＋ 新建规则」创建规则，支持两种类型：
+  - **正则表达式**：正则 + 取值策略（首个匹配 / 最后匹配（默认）/ 全部匹配）。含捕获组时取第 1 个分组的值，否则取整条匹配；按行匹配
+  - **JS 脚本**（规则芯片上带 ƒ 标记）：沙箱执行（5 秒超时），可用变量 `log`（完整日志文本）和 `lines`（按行数组）。提取结果为赋给 `result` 的值，未赋值时取最后一个表达式的值；可返回字符串或字符串数组，返回空/undefined 视为未匹配
+- 两种类型都可填可选的回写参数名
+- 规则以芯片形式展示，点击选中/取消，✎ 编辑（名称不可改）、✕ 删除；规则全局保存复用
+
+**JS 脚本示例**：
+
+```js
+// 提取最后一个 CHANGE_ID
+const ms = [...log.matchAll(/CHANGE_ID=(\w+)/g)];
+result = ms.length ? ms[ms.length - 1][1] : '';
+```
+
+```js
+// 统计 ERROR 行并拼接前 3 条
+const errs = lines.filter(l => l.includes('ERROR'));
+errs.length ? errs.slice(0, 3) : null;
+```
+
+**使用流程**：
+1. 勾选要提取的规则（可多选），在目标列表中确认参与提取的 Pipeline（无构建记录的自动禁用，构建中的会提示日志可能不完整）
+2. 点「开始提取」，逐个拉取日志并应用所有选中规则，结果表格实时刷新，可随时「取消」
+3. 完成后显示成功/未匹配/失败统计；「复制」得到 TSV 文本，「导出」写入新编辑器
+4. 默认只查看和导出。如需回写参数：勾选「回写到参数」，预览每个 job×规则的键值后选择模式：
+   - **每 job 专属参数**：结果写入各 Pipeline 的专属参数（多 Pipeline 值不同时推荐）
+   - **全局批量参数**：结果合并进全局参数（同名键冲突时该模式自动禁用）
+5. 点「回写到参数」二次确认后生效，下次触发即携带提取值
+
+#### 完整案例：发版后收集部署版本与失败摘要
+
+**场景**：3 个服务（`pay/order`、`pay/user`、`pay/gateway`）刚完成一轮构建，你需要收集每个服务部署的镜像 tag、变更 ID，并统计 ERROR 行数，为下一轮灰度触发做准备。
+
+**第 1 步**：假设某个服务的构建日志（Console Output）包含：
+
+```text
+[Pipeline] Start of Pipeline
+Building image registry.example.com/pay/order:v2.3.1
+CHANGE_ID=chg-1001
+Deploying to staging ...
+ERROR: slow response from db (retry 1)
+Deploy done, image=registry.example.com/pay/order:v2.3.1
+[Pipeline] End of Pipeline
+```
+
+**第 2 步**：打开「🔍 日志提取」→「＋ 新建规则」，创建 3 条规则：
+
+| 规则名 | 类型 | 配置 | 回写参数名 |
+|--------|------|------|-----------|
+| 镜像Tag | 正则 | `image=[^:]*:(v[\d.]+)`，策略：最后匹配 | `IMAGE_TAG` |
+| 变更ID | 正则 | `CHANGE_ID=(\w[\w-]*)`，策略：最后匹配 | `CHANGE_ID` |
+| 错误统计 | JS 脚本 | 见下方，无 result 赋值取末表达式 | 留空（仅查看） |
+
+错误统计脚本：
+
+```js
+const errs = lines.filter(l => l.includes('ERROR'));
+errs.length ? errs.length + ' 条' : '';
+```
+
+**第 3 步**：勾选 3 条规则 + 3 个目标 Pipeline，点「开始提取」。结果表格：
+
+| Pipeline | # | 镜像Tag | 变更ID | 错误统计 |
+|----------|---|---------|--------|----------|
+| pay/order | #58 | v2.3.1 | chg-1001 | 1 条 |
+| pay/user | #61 | v2.3.1 | chg-1002 | 未匹配 |
+| pay/gateway | #33 | v2.2.9 | chg-0988 | 2 条 |
+
+**第 4 步**：点「导出」把表格存到编辑器留档；如需把版本信息带给下一轮触发，勾选「回写到参数」：
+- 各服务 tag 不同 → 选「每 job 专属参数」，预览确认后回写
+- 回写后 `pay/order` 的专属参数变为 `{ "IMAGE_TAG": "v2.3.1", "CHANGE_ID": "chg-1001" }`，下次触发自动携带
+
+**小技巧**：
+- 正则拿不准时先在「JS 脚本」类型里用 `log.match(...)` 试错，稳定后再改回正则规则
+- 脚本返回数组时单元格用逗号连接显示，完整内容悬停可见
+- 脚本里 `console.log` 无效（无控制台输出），调试靠 `result` 返回值
+- 规则是全局保存的，团队内常用规则建一次即可长期复用
 
 ## Pre/Post Action 系统
 
@@ -255,6 +345,7 @@ ${run.prev.id}	上次构建 ID
 |------|------|------|
 | 树结构 + 选择 | VSCode globalState | 跨 workspace 共享 |
 | 参数模板 + 模板分类 | VSCode globalState | 跨 workspace 共享 |
+| 日志提取规则 | VSCode globalState | 跨 workspace 共享 |
 | Action 配置 | `globalStorageUri/default-config.json` | 所有 Pipeline 共用 |
 | Pipeline 状态 | `globalStorageUri/states/<id>.json` | 按 Pipeline 隔离 |
 | API Token | VSCode SecretStorage | 加密存储 |
@@ -297,6 +388,12 @@ A: 试运行（Dry Run）只执行 Pre-Actions 的模板渲染，不会真正触
 
 **Q: 如何重置某个 Pipeline 的状态？**
 A: Configure Actions → 状态 Tab → 选择 Pipeline → 重置。
+
+**Q: 日志提取的 JS 脚本报错或超时怎么办？**
+A: 结果表格对应单元格会显示错误信息。检查脚本语法（沙箱无 `require`/网络/文件访问），单次执行限时 5 秒。注意：返回空值/undefined 显示「未匹配」而非报错。
+
+**Q: 日志提取和 Post-Action 的 regex_extract 有什么区别？**
+A: 日志提取是手动、即时的查看/导出工具，可随时对任意已有构建执行并回写触发参数；Post-Action 在构建完成后自动执行，把结果写入 Action 状态文件供下次触发注入。两者互补：临时排查用日志提取，固定流程用 Post-Action。
 
 ## License
 

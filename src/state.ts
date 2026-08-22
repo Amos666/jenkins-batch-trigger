@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
-import { TreeNode, TreeConfig, genId, ParamTemplate, nextId, Job } from "./types";
+import * as vm from "vm";
+import { TreeNode, TreeConfig, genId, ParamTemplate, nextId, Job, LogExtractRule, LogExtractRuleKind, LogExtractStrategy, LogExtractResult } from "./types";
 import { GlobalStore } from "./globalStore";
 import { JenkinsClient, JenkinsCredsProvider } from "./jenkinsClient";
 import { JobPickerPanel } from "./jobPickerPanel";
@@ -14,6 +15,7 @@ export interface Snapshot {
   selectedNodes: TreeNode[];
   paramTemplates: ParamTemplate[];
   paramTplCategories: string[];
+  logExtractRules: LogExtractRule[];
   preEnabledPipelines: string[];
   postEnabledPipelines: string[];
 }
@@ -43,6 +45,8 @@ export class StateService {
   paramTemplates: ParamTemplate[];
   /** Ordered list of param-template category names. */
   paramTplCategories: string[];
+  /** User-defined log extraction rules. */
+  logExtractRules: LogExtractRule[];
   /** Current sidebar filter text (empty = show all). */
   filterText = "";
 
@@ -71,6 +75,7 @@ export class StateService {
     this.client.logger = (msg) => this.pushLog(msg);
     this.paramTemplates = store.loadParamTemplates();
     this.paramTplCategories = store.loadTplCategories();
+    this.logExtractRules = store.loadLogExtractRules();
     this.picker = new JobPickerPanel();
 
     // Action system initialization.
@@ -113,6 +118,7 @@ export class StateService {
       selectedNodes,
       paramTemplates: this.paramTemplates,
       paramTplCategories: this.paramTplCategories,
+      logExtractRules: this.logExtractRules,
       preEnabledPipelines: [...this.preEnabledPipelines],
       postEnabledPipelines: [...this.postEnabledPipelines],
     };
@@ -663,6 +669,103 @@ export class StateService {
     this.paramTplCategories = ordered;
     this.store.saveTplCategories(ordered);
     this.notifyTree();
+  }
+
+  /* ---------------- log extract rules ---------------- */
+
+  /** Create or update (by name) a log extraction rule. */
+  saveLogExtractRule(
+    name: string,
+    kind: LogExtractRuleKind,
+    pattern: string,
+    code: string,
+    strategy: LogExtractStrategy,
+    targetKey: string
+  ): void {
+    const existing = this.logExtractRules.find((r) => r.name === name);
+    const key = targetKey.trim() || undefined;
+    const update = (r: LogExtractRule): void => {
+      r.kind = kind;
+      r.pattern = kind === "regex" ? pattern : undefined;
+      r.code = kind === "script" ? code : undefined;
+      r.strategy = strategy;
+      r.targetKey = key;
+    };
+    if (existing) {
+      update(existing);
+    } else {
+      const r: LogExtractRule = { id: nextId(), name, strategy };
+      update(r);
+      this.logExtractRules.push(r);
+    }
+    this.store.saveLogExtractRules(this.logExtractRules);
+    this.notifyTree();
+  }
+
+  deleteLogExtractRule(id: number): void {
+    this.logExtractRules = this.logExtractRules.filter((r) => r.id !== id);
+    this.store.saveLogExtractRules(this.logExtractRules);
+    this.notifyTree();
+  }
+
+  /**
+   * Fetch a build's full console log and apply the given rules.
+   * The log is fetched once; regex rules scan line by line, script rules run
+   * in a vm sandbox with `log` / `lines` variables and a 5s timeout.
+   */
+  async extractJobLog(
+    jobPath: string,
+    buildNumber: number,
+    rules: { name: string; kind?: LogExtractRuleKind; pattern?: string; code?: string; strategy: LogExtractStrategy }[]
+  ): Promise<LogExtractResult[]> {
+    const text = await this.client.getConsoleText(jobPath, buildNumber);
+    const lines = text.split(/\r?\n/);
+    return rules.map((rule) => {
+      if (rule.kind === "script") {
+        return this.runExtractScript(rule.name, rule.code || "", text, lines);
+      }
+      let re: RegExp;
+      try {
+        re = new RegExp(rule.pattern || "");
+      } catch (e) {
+        return { name: rule.name, matched: false, values: [], error: (e as Error).message };
+      }
+      const values: string[] = [];
+      for (const line of lines) {
+        const m = re.exec(line);
+        if (m) {
+          values.push(m[1] !== undefined ? m[1] : m[0]);
+          if (rule.strategy === "first") break;
+        }
+      }
+      if (values.length === 0) {
+        return { name: rule.name, matched: false, values: [] };
+      }
+      if (rule.strategy === "last") {
+        return { name: rule.name, matched: true, values: [values[values.length - 1]] };
+      }
+      return { name: rule.name, matched: true, values };
+    });
+  }
+
+  private runExtractScript(name: string, code: string, log: string, lines: string[]): LogExtractResult {
+    if (!code.trim()) {
+      return { name, matched: false, values: [], error: t("state.leScriptEmpty") };
+    }
+    try {
+      const sandbox: { log: string; lines: string[]; result?: unknown } = { log, lines };
+      const completion = vm.runInNewContext(code, sandbox, { timeout: 5000, filename: "log-extract-script.js" });
+      const raw = sandbox.result !== undefined ? sandbox.result : completion;
+      if (raw === undefined || raw === null) {
+        return { name, matched: false, values: [] };
+      }
+      const values = (Array.isArray(raw) ? raw : [raw])
+        .map((x) => String(x))
+        .filter((s) => s !== "");
+      return { name, matched: values.length > 0, values };
+    } catch (e) {
+      return { name, matched: false, values: [], error: (e as Error).message };
+    }
   }
 
   /** Overwrite the Default template (id=0) with new params. */

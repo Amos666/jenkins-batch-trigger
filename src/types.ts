@@ -78,6 +78,36 @@ export interface ParamTemplate {
   category?: string;
 }
 
+/** Which occurrence of a regex match to keep during log extraction. */
+export type LogExtractStrategy = "first" | "last" | "all";
+
+/** How a log extraction rule derives its value. */
+export type LogExtractRuleKind = "regex" | "script";
+
+/** A user-defined rule for extracting values from build console logs. */
+export interface LogExtractRule {
+  id: number;
+  name: string;
+  /** Undefined on rules saved before scripts existed; treated as "regex". */
+  kind?: LogExtractRuleKind;
+  /** JS regex applied line by line (regex kind). */
+  pattern?: string;
+  /** Sandboxed JS code evaluated against the full log (script kind). */
+  code?: string;
+  strategy: LogExtractStrategy;
+  /** Param key used when writing results back; empty = use rule name. */
+  targetKey?: string;
+}
+
+/** Extraction result of one rule on one build log. */
+export interface LogExtractResult {
+  name: string;
+  matched: boolean;
+  values: string[];
+  /** Present when the rule pattern failed to compile. */
+  error?: string;
+}
+
 /** Create an empty tree config. */
 export function emptyTreeConfig(): TreeConfig {
   return { nodes: {}, rootIds: [] };

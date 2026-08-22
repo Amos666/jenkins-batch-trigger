@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "./webviewHtml";
 import { StateService, Snapshot } from "./state";
-import { ParamTemplate } from "./types";
+import { ParamTemplate, LogExtractRule, LogExtractRuleKind, LogExtractStrategy } from "./types";
 import { getWebviewMessages } from "./i18n";
 
 /** Inbound message shapes from the webview. */
@@ -17,6 +17,9 @@ type InMsg =
   | { type: "deleteTplCategory"; id: number; data: { name: string } }
   | { type: "setTplCategory"; id: number; data: { id: number; category: string } }
   | { type: "reorderTplCategories"; id: number; data: { names: string[] } }
+  | { type: "saveLogRule"; id: number; data: { name: string; kind: LogExtractRuleKind; pattern: string; code: string; strategy: LogExtractStrategy; targetKey: string } }
+  | { type: "deleteLogRule"; id: number; data: { id: number } }
+  | { type: "extractJobLog"; id: number; data: { nodeId: string; jobPath: string; buildNumber: number; rules: { name: string; kind?: LogExtractRuleKind; pattern?: string; code?: string; strategy: LogExtractStrategy }[] } }
   | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
   | { type: "saveActiveTpl"; data: { name: string } }
   | { type: "togglePre"; id: number; data: { jobPath: string } }
@@ -151,6 +154,25 @@ export class WebviewProvider {
         this.reply(m.id, this.paramResult());
         break;
       }
+      case "saveLogRule": {
+        this.state.saveLogExtractRule(m.data.name, m.data.kind, m.data.pattern, m.data.code, m.data.strategy, m.data.targetKey);
+        this.reply(m.id, this.leResult());
+        break;
+      }
+      case "deleteLogRule": {
+        this.state.deleteLogExtractRule(m.data.id);
+        this.reply(m.id, this.leResult());
+        break;
+      }
+      case "extractJobLog": {
+        try {
+          const results = await this.state.extractJobLog(m.data.jobPath, m.data.buildNumber, m.data.rules);
+          this.reply(m.id, { nodeId: m.data.nodeId, buildNumber: m.data.buildNumber, ok: true, results });
+        } catch (e) {
+          this.reply(m.id, { nodeId: m.data.nodeId, buildNumber: m.data.buildNumber, ok: false, error: (e as Error).message });
+        }
+        break;
+      }
       case "overwriteDefaultTpl": {
         this.state.overwriteDefaultTpl(m.data.params);
         this.reply(m.id, this.paramResult());
@@ -207,6 +229,11 @@ export class WebviewProvider {
   /** Snapshot focusing on param templates. */
   private paramResult(): { paramTemplates: ParamTemplate[]; paramTplCategories: string[] } {
     return { paramTemplates: this.state.paramTemplates, paramTplCategories: this.state.paramTplCategories };
+  }
+
+  /** Snapshot focusing on log extract rules. */
+  private leResult(): { logExtractRules: LogExtractRule[] } {
+    return { logExtractRules: this.state.logExtractRules };
   }
 
   private reply(id: number, data: unknown): void {

@@ -98,6 +98,55 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .tpl-saved .tpl-cat.cat-dragging{opacity:.5;}
 .tpl-saved .tpl-cat.cat-drop-before{box-shadow:0 -2px 0 0 var(--accent,#4fc3f7);}
 .tpl-saved .tpl-cat.cat-drop-after{box-shadow:0 2px 0 0 var(--accent,#4fc3f7);}
+/* Log extract: rule chips reuse .tpl-saved/.chip; small edit/delete marks. */
+#leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;cursor:pointer;font-size:10px;}
+#leRuleList .chip .del{color:var(--red,#f48771);}
+#leRuleList .chip .edit{color:var(--text-dim,#888);}
+#leRuleList .chip .del:hover,#leRuleList .chip .edit:hover{opacity:1;}
+/* Log extract: target list */
+.le-targets{max-height:150px;overflow:auto;border:1px solid var(--border,#333);border-radius:4px;
+  background:var(--input,#1b1b1b);margin-bottom:10px;}
+.le-target-row{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:12px;
+  border-bottom:1px solid var(--border,#2a2a2a);}
+.le-target-row:last-child{border-bottom:none;}
+.le-target-row.disabled{opacity:.55;}
+.le-target-row .tname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.le-target-row .tbuild{color:var(--text-dim,#888);font-family:var(--font-mono,monospace);font-size:11px;}
+.le-target-row .tstatus{font-size:10px;padding:1px 7px;border-radius:8px;background:rgba(255,255,255,0.06);color:var(--text-dim,#888);}
+.le-target-row .tstatus.warn{color:var(--red,#f48771);}
+/* Log extract: result table */
+.le-result-wrap{max-height:240px;overflow:auto;border:1px solid var(--border,#333);border-radius:4px;margin-bottom:10px;}
+.le-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;}
+.le-table th,.le-table td{padding:5px 10px;border-bottom:1px solid var(--border,#2a2a2a);
+  text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;}
+.le-table th{position:sticky;top:0;background:var(--bg-alt,#1e1e1e);color:var(--text-dim,#888);
+  font-weight:600;font-size:11px;z-index:1;}
+.le-table tbody tr:hover{background:rgba(255,255,255,0.03);}
+.le-table td.nomatch{color:var(--text-dim,#888);font-style:italic;}
+.le-table td.err{color:var(--red,#f48771);}
+.le-table td.val{font-family:var(--font-mono,monospace);color:var(--green,#81c784);}
+/* Log extract: write-back area */
+.le-writeback{border-top:1px dashed var(--border,#333);padding-top:8px;font-size:12px;}
+.le-writeback label{cursor:pointer;}
+.le-wb-row{display:flex;gap:14px;align-items:center;margin:8px 0;color:var(--text-dim,#888);flex-wrap:wrap;}
+.le-wb-row label{cursor:pointer;color:var(--text,#ddd);}
+.le-wb-preview{background:var(--input,#1b1b1b);border:1px solid #333;border-radius:4px;
+  padding:7px 10px;font-size:11px;color:var(--text-dim,#888);max-height:120px;overflow:auto;
+  font-family:var(--font-mono,monospace);line-height:1.7;margin-top:4px;}
+.le-wb-preview .wb-skip{font-style:italic;}
+.le-wb-preview .wb-conflict{color:#e5c07b;}
+.le-progress{color:var(--text-dim,#888);font-size:12px;align-self:center;margin-right:8px;}
+.le-rule-err{color:var(--red,#f48771);font-size:11px;margin-top:6px;}
+.btn:disabled{opacity:.45;cursor:not-allowed;}
+.le-kind-row{display:flex;gap:18px;align-items:center;}
+.le-kind-row label{display:flex;gap:5px;align-items:center;cursor:pointer;color:var(--text,#ddd);}
+#leRuleCode{width:100%;box-sizing:border-box;font-family:var(--font-mono,monospace);
+  font-size:12px;line-height:1.6;resize:vertical;min-height:110px;
+  background:var(--input,#1b1b1b);color:var(--text,#ddd);border:1px solid var(--border,#333);
+  border-radius:4px;padding:7px 10px;}
+#leRuleList .chip .kind{font-family:var(--font-mono,monospace);font-weight:700;
+  color:#61afef;background:rgba(97,175,239,.14);border-radius:3px;padding:0 4px;
+  margin-right:3px;font-size:11px;}
 /* Resizable log panel — uses a draggable resizer bar instead of CSS resize
    because resize:vertical does not work reliably on flex column children.
    Override ALL conflicting wireframe properties (display:none, max-height:110px). */
@@ -135,6 +184,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
       <button class="btn primary icon" id="btnRefresh" data-i18n-title="webview.html.refreshTitle" data-i18n="webview.html.refreshBtn" title="${t("webview.html.refreshTitle")}">${t("webview.html.refreshBtn")}</button>
       <button class="btn" id="btnTimeout" data-i18n-title="webview.html.timeoutTitle" title="${t("webview.html.timeoutTitle")}">⏱ <span data-i18n="webview.html.timeoutBtn">${t("webview.html.timeoutBtn")}</span> <span id="timeoutVal">10</span>m</button>
       <button class="btn" id="btnActionsConfig" data-i18n-title="webview.html.actionsConfigTitle" title="${t("webview.html.actionsConfigTitle")}">⚡ <span data-i18n="webview.html.actionsConfigBtn">${t("webview.html.actionsConfigBtn")}</span></button>
+      <button class="btn" id="btnLogExtract" data-i18n-title="webview.html.leTitle" title="${t("webview.html.leTitle")}">🔍 <span data-i18n="webview.html.leBtn">${t("webview.html.leBtn")}</span></button>
     </div>
     <div class="tablewrap">
       <table>
@@ -222,6 +272,96 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
     <div class="foot">
       <button class="btn" id="btnTplCatCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
       <button class="btn primary" id="btnTplCatSave" data-i18n="webview.html.saveCatBtn">${t("webview.html.saveCatBtn")}</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="logExtractOverlay">
+  <div class="modal wide">
+    <h3 data-i18n="webview.html.leModalTitle">${t("webview.html.leModalTitle")}</h3>
+    <div class="body">
+      <div class="tpl-chips">
+        <span style="color:var(--text-dim);font-size:11px;align-self:center;" data-i18n="webview.html.leRuleLabel">${t("webview.html.leRuleLabel")}</span>
+        <button class="btn sm" id="btnLeNewRule" style="margin-left:auto" data-i18n="webview.html.leNewRule">${t("webview.html.leNewRule")}</button>
+      </div>
+      <div class="tpl-saved" id="leRuleList"></div>
+      <div class="pj-head"><span data-i18n="webview.html.leTargetHead">${t("webview.html.leTargetHead")}</span><span class="tag" id="leTargetCount">0</span></div>
+      <div class="le-targets" id="leTargetList"></div>
+      <div id="leResultWrap" style="display:none">
+        <div class="pj-head"><span data-i18n="webview.html.leResultHead">${t("webview.html.leResultHead")}</span><span class="tag" id="leSummary"></span></div>
+        <div class="le-result-wrap"><table class="le-table"><thead id="leResultHead"></thead><tbody id="leResultBody"></tbody></table></div>
+      </div>
+      <div class="le-writeback">
+        <label><input type="checkbox" id="leWriteBackChk" /> <span data-i18n="webview.html.leWriteBack">${t("webview.html.leWriteBack")}</span></label>
+        <div id="leWriteBackOpts" style="display:none">
+          <div class="le-wb-row">
+            <span data-i18n="webview.html.leWbMode">${t("webview.html.leWbMode")}</span>
+            <label><input type="radio" name="leWbMode" value="job" checked /> <span data-i18n="webview.html.leWbJob">${t("webview.html.leWbJob")}</span></label>
+            <label><input type="radio" name="leWbMode" value="global" id="leWbGlobalRadio" /> <span data-i18n="webview.html.leWbGlobal">${t("webview.html.leWbGlobal")}</span></label>
+          </div>
+          <div class="le-wb-preview" id="leWbPreview"></div>
+        </div>
+      </div>
+    </div>
+    <div class="foot">
+      <span class="le-progress" id="leProgress" style="display:none"></span>
+      <div class="spacer"></div>
+      <button class="btn" id="btnLeClose" data-i18n="webview.closeBtn">${t("webview.closeBtn")}</button>
+      <button class="btn" id="btnLeCancel" style="display:none" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn" id="btnLeCopy" style="display:none" data-i18n="webview.html.leCopy">${t("webview.html.leCopy")}</button>
+      <button class="btn" id="btnLeExport" style="display:none" data-i18n="webview.html.leExport">${t("webview.html.leExport")}</button>
+      <button class="btn" id="btnLeWriteBack" style="display:none" data-i18n="webview.html.leWriteBackBtn">${t("webview.html.leWriteBackBtn")}</button>
+      <button class="btn primary" id="btnLeStart" data-i18n="webview.html.leStart">${t("webview.html.leStart")}</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="leRuleOverlay">
+  <div class="modal">
+    <h3 data-i18n="webview.html.leRuleModalTitle">${t("webview.html.leRuleModalTitle")}</h3>
+    <div class="body">
+      <div class="field"><label data-i18n="webview.html.leRuleName">${t("webview.html.leRuleName")}</label><input type="text" id="leRuleName" data-i18n-placeholder="webview.html.leRuleNamePh" placeholder="${t("webview.html.leRuleNamePh")}" /></div>
+      <div class="field"><label data-i18n="webview.html.leRuleKind">${t("webview.html.leRuleKind")}</label>
+        <div class="le-kind-row">
+          <label><input type="radio" name="leRuleKind" value="regex" checked /> <span data-i18n="webview.html.leKindRegex">${t("webview.html.leKindRegex")}</span></label>
+          <label><input type="radio" name="leRuleKind" value="script" /> <span data-i18n="webview.html.leKindScript">${t("webview.html.leKindScript")}</span></label>
+        </div>
+      </div>
+      <div id="leRegexFields">
+        <div class="field"><label data-i18n="webview.html.leRulePattern">${t("webview.html.leRulePattern")}</label><input type="text" id="leRulePattern" data-i18n-placeholder="webview.html.leRulePatternPh" placeholder="${t("webview.html.leRulePatternPh")}" spellcheck="false" /></div>
+        <div class="hint" data-i18n="webview.html.leRulePatternHint">${t("webview.html.leRulePatternHint")}</div>
+        <div class="field"><label data-i18n="webview.html.leRuleStrategy">${t("webview.html.leRuleStrategy")}</label>
+          <select id="leRuleStrategy">
+            <option value="first" data-i18n="webview.html.leStrategyFirst">${t("webview.html.leStrategyFirst")}</option>
+            <option value="last" selected data-i18n="webview.html.leStrategyLast">${t("webview.html.leStrategyLast")}</option>
+            <option value="all" data-i18n="webview.html.leStrategyAll">${t("webview.html.leStrategyAll")}</option>
+          </select>
+        </div>
+      </div>
+      <div id="leScriptFields" style="display:none">
+        <div class="field"><label data-i18n="webview.html.leRuleCode">${t("webview.html.leRuleCode")}</label><textarea id="leRuleCode" rows="7" spellcheck="false" data-i18n-placeholder="webview.html.leRuleCodePh" placeholder="${t("webview.html.leRuleCodePh")}"></textarea></div>
+        <div class="hint" data-i18n="webview.html.leRuleCodeHint">${t("webview.html.leRuleCodeHint")}</div>
+      </div>
+      <div class="field"><label data-i18n="webview.html.leRuleTargetKey">${t("webview.html.leRuleTargetKey")}</label><input type="text" id="leRuleTargetKey" data-i18n-placeholder="webview.html.leRuleTargetKeyPh" placeholder="${t("webview.html.leRuleTargetKeyPh")}" spellcheck="false" /></div>
+      <div class="hint" data-i18n="webview.html.leRuleTargetKeyHint">${t("webview.html.leRuleTargetKeyHint")}</div>
+      <div class="le-rule-err" id="leRuleErr" style="display:none"></div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnLeRuleCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnLeRuleSave" data-i18n="webview.html.leRuleSaveBtn">${t("webview.html.leRuleSaveBtn")}</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="leConfirmOverlay">
+  <div class="modal">
+    <h3 data-i18n="webview.html.leConfirmTitle">${t("webview.html.leConfirmTitle")}</h3>
+    <div class="body">
+      <div class="summary-box" id="leConfirmSummary"></div>
+    </div>
+    <div class="foot">
+      <button class="btn" id="btnLeConfirmCancel" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
+      <button class="btn primary" id="btnLeConfirmOk" data-i18n="webview.html.leConfirmOk">${t("webview.html.leConfirmOk")}</button>
     </div>
   </div>
 </div>

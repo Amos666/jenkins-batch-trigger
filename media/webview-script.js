@@ -66,7 +66,7 @@ const STATUS_KEY = { running:"webview.status.running", success:"webview.status.s
 const BADGE = { running:"b-running", success:"b-success", failed:"b-failed", unstable:"b-unstable", aborted:"b-aborted", idle:"b-idle", unknown:"b-idle" };
 
 /* ============ 状态 ============ */
-let STATE = { selectedNodes: [], paramTemplates: [], paramTplCategories: [], preEnabledPipelines: [], postEnabledPipelines: [] };
+let STATE = { selectedNodes: [], paramTemplates: [], paramTplCategories: [], logExtractRules: [], preEnabledPipelines: [], postEnabledPipelines: [] };
 let search = "";
 let statusFilter = "all";
 let params = [];
@@ -120,10 +120,12 @@ function applySnapshot(s) {
   }
   if (s.paramTemplates) STATE.paramTemplates = s.paramTemplates;
   if (s.paramTplCategories) STATE.paramTplCategories = s.paramTplCategories;
+  if (s.logExtractRules) STATE.logExtractRules = s.logExtractRules;
   if (s.preEnabledPipelines) STATE.preEnabledPipelines = s.preEnabledPipelines;
   if (s.postEnabledPipelines) STATE.postEnabledPipelines = s.postEnabledPipelines;
   render();
   renderParamTpl();
+  updateLeBtnState();
 }
 
 /* ============ 工具 ============ */
@@ -1147,6 +1149,412 @@ document.addEventListener("mouseup", () => {
     });
   });
 })();
+
+/* ============ 日志提取 ============ */
+let leSelectedRules = new Set(); // selected rule ids
+let leTargets = [];              // [{nodeId, label, jobPath, buildNumber, status, checked}]
+let leRows = new Map();          // nodeId -> {state, error?, buildNumber, results[]}
+let leLastTargets = [];
+let leLastRules = [];
+let leRunning = false;
+let leCancelled = false;
+
+function leGetRules() { return STATE.logExtractRules || []; }
+
+function updateLeBtnState() {
+  const btn = document.getElementById("btnLogExtract");
+  const has = STATE.selectedNodes.length > 0;
+  btn.disabled = !has;
+  btn.title = has ? t("webview.html.leTitle") : t("webview.leNoSelection");
+}
+
+function openLogExtract() {
+  if (!STATE.selectedNodes.length) { toast(t("webview.leNoSelection")); return; }
+  leTargets = STATE.selectedNodes.map((d) => ({
+    nodeId: d.id,
+    label: getPipelineDisplayLabel(d),
+    jobPath: d.jobPath || d.name,
+    buildNumber: d.buildNumber || 0,
+    status: d.status || "unknown",
+    checked: !!d.buildNumber,
+  }));
+  leRows = new Map();
+  leCancelled = false;
+  document.getElementById("leResultWrap").style.display = "none";
+  document.getElementById("btnLeCopy").style.display = "none";
+  document.getElementById("btnLeExport").style.display = "none";
+  document.getElementById("btnLeWriteBack").style.display = "none";
+  document.getElementById("leWriteBackChk").checked = false;
+  document.getElementById("leWriteBackOpts").style.display = "none";
+  document.getElementById("leProgress").style.display = "none";
+  document.getElementById("btnLeCancel").style.display = "none";
+  document.getElementById("btnLeStart").style.display = "";
+  renderLeRules();
+  renderLeTargets();
+  updateLeStartState();
+  document.getElementById("logExtractOverlay").classList.add("show");
+}
+
+function renderLeRules() {
+  const box = document.getElementById("leRuleList");
+  const rules = leGetRules();
+  box.innerHTML = rules.length ? "" : '<span class="hint" style="margin:0">' + t("webview.leNoRules") + '</span>';
+  rules.forEach((r) => {
+    const c = document.createElement("span");
+    c.className = "chip" + (leSelectedRules.has(r.id) ? " on" : "");
+    c.innerHTML = (r.kind === "script" ? '<span class="kind">ƒ</span>' : "") + escapeHtml(r.name) +
+      ' <span class="edit" data-leedit="' + r.id + '" title="' + escapeHtml(t("webview.leEditTitle")) + '">✎</span>' +
+      ' <span class="del" data-ledel="' + r.id + '">✕</span>';
+    c.onclick = (e) => {
+      if (e.target.dataset.leedit) { e.stopPropagation(); openLeRuleModal(r); return; }
+      if (e.target.dataset.ledel) {
+        e.stopPropagation();
+        rpc("deleteLogRule", { id: +e.target.dataset.ledel }).then((res) => {
+          if (res && res.logExtractRules) {
+            STATE.logExtractRules = res.logExtractRules;
+            leSelectedRules.delete(r.id);
+            renderLeRules(); updateLeStartState();
+          }
+        });
+        return;
+      }
+      if (leSelectedRules.has(r.id)) leSelectedRules.delete(r.id); else leSelectedRules.add(r.id);
+      renderLeRules(); updateLeStartState();
+    };
+    box.appendChild(c);
+  });
+}
+
+function renderLeTargets() {
+  const box = document.getElementById("leTargetList");
+  box.innerHTML = "";
+  leTargets.forEach((tg, i) => {
+    const row = document.createElement("div");
+    row.className = "le-target-row" + (tg.buildNumber ? "" : " disabled");
+    const statusTxt = tg.buildNumber
+      ? (tg.status === "running" ? t("webview.leRunningNote") : "")
+      : t("webview.leNoBuild");
+    row.innerHTML = '<input type="checkbox" data-leidx="' + i + '"' + (tg.checked && tg.buildNumber ? " checked" : "") + (tg.buildNumber ? "" : " disabled") + ' />' +
+      '<span class="tname">' + escapeHtml(tg.label) + '</span>' +
+      (tg.buildNumber ? '<span class="tbuild">#' + tg.buildNumber + '</span>' : '') +
+      (statusTxt ? '<span class="tstatus' + (tg.buildNumber ? '' : ' warn') + '">' + escapeHtml(statusTxt) + '</span>' : '');
+    row.querySelector("input").onchange = (e) => { tg.checked = e.target.checked; updateLeStartState(); };
+    box.appendChild(row);
+  });
+  document.getElementById("leTargetCount").textContent = leTargets.filter((x) => x.buildNumber).length;
+}
+
+function updateLeStartState() {
+  const ok = leSelectedRules.size > 0 && leTargets.some((x) => x.checked && x.buildNumber) && !leRunning;
+  document.getElementById("btnLeStart").disabled = !ok;
+}
+
+function renderLeResults(targets, rules) {
+  const body = document.getElementById("leResultBody");
+  body.innerHTML = "";
+  targets.forEach((tg) => {
+    const row = leRows.get(tg.nodeId);
+    const tr = document.createElement("tr");
+    let html = "<td>" + escapeHtml(tg.label) + "</td><td class='tbuild'>#" + tg.buildNumber + "</td>";
+    if (!row || row.state === "pending") {
+      html += rules.map(() => "<td class='nomatch'>…</td>").join("");
+    } else if (row.state === "working") {
+      html += rules.map(() => "<td class='nomatch'>" + escapeHtml(t("webview.leExtracting")) + "</td>").join("");
+    } else if (row.state === "error") {
+      html += "<td class='err' colspan='" + rules.length + "'>" + escapeHtml(row.error || "") + "</td>";
+    } else {
+      const byName = new Map((row.results || []).map((x) => [x.name, x]));
+      html += rules.map((ru) => {
+        const res = byName.get(ru.name);
+        if (!res || res.error) return "<td class='err'>" + escapeHtml(res && res.error ? res.error : t("webview.leRuleFailed")) + "</td>";
+        if (!res.matched) return "<td class='nomatch'>" + escapeHtml(t("webview.leNoMatch")) + "</td>";
+        return "<td class='val' title='" + escapeHtml(res.values.join("\n")) + "'>" + escapeHtml(res.values.join(", ")) + "</td>";
+      }).join("");
+    }
+    tr.innerHTML = html;
+    body.appendChild(tr);
+  });
+}
+
+async function startLeExtract() {
+  const rules = leGetRules().filter((r) => leSelectedRules.has(r.id));
+  const targets = leTargets.filter((x) => x.checked && x.buildNumber);
+  if (!rules.length || !targets.length || leRunning) return;
+  leRunning = true; leCancelled = false;
+  leRows = new Map();
+  document.getElementById("leResultHead").innerHTML = "<tr><th>" + t("webview.html.thPipeline") + "</th><th>#</th>" +
+    rules.map((r) => "<th>" + escapeHtml(r.name) + "</th>").join("") + "</tr>";
+  document.getElementById("leResultBody").innerHTML = "";
+  document.getElementById("leSummary").textContent = "";
+  document.getElementById("leResultWrap").style.display = "";
+  document.getElementById("btnLeCopy").style.display = "none";
+  document.getElementById("btnLeExport").style.display = "none";
+  document.getElementById("btnLeWriteBack").style.display = "none";
+  document.getElementById("btnLeStart").style.display = "none";
+  document.getElementById("btnLeCancel").style.display = "";
+  document.getElementById("leProgress").style.display = "";
+  targets.forEach((tg) => { leRows.set(tg.nodeId, { state: "pending", buildNumber: tg.buildNumber, results: [] }); });
+  renderLeResults(targets, rules);
+  let done = 0;
+  for (const tg of targets) {
+    if (leCancelled) break;
+    const row = leRows.get(tg.nodeId);
+    row.state = "working";
+    renderLeResults(targets, rules);
+    document.getElementById("leProgress").textContent = t("webview.leProgress", { done: done, total: targets.length });
+    const r = await rpc("extractJobLog", {
+      nodeId: tg.nodeId, jobPath: tg.jobPath, buildNumber: tg.buildNumber,
+      rules: rules.map((x) => ({ name: x.name, kind: x.kind || "regex", pattern: x.pattern || "", code: x.code || "", strategy: x.strategy })),
+    });
+    if (r && r.ok) { row.state = "ok"; row.results = r.results || []; }
+    else { row.state = "error"; row.error = (r && r.error) || t("webview.leFetchFailed"); }
+    done++;
+    document.getElementById("leProgress").textContent = t("webview.leProgress", { done: done, total: targets.length });
+    renderLeResults(targets, rules);
+  }
+  leRunning = false;
+  document.getElementById("btnLeStart").style.display = "";
+  document.getElementById("btnLeCancel").style.display = "none";
+  document.getElementById("leProgress").style.display = "none";
+  updateLeStartState();
+  leLastTargets = targets;
+  leLastRules = rules;
+  let ok = 0, nomatch = 0, err = 0;
+  targets.forEach((tg) => {
+    const row = leRows.get(tg.nodeId);
+    if (!row || row.state !== "ok") { err++; return; }
+    if ((row.results || []).some((x) => x.matched)) ok++; else nomatch++;
+  });
+  document.getElementById("leSummary").textContent = t("webview.leSummary", { ok: ok, nomatch: nomatch, err: err });
+  document.getElementById("btnLeCopy").style.display = "";
+  document.getElementById("btnLeExport").style.display = "";
+  updateLeWriteBack();
+}
+
+/* ---- Write-back (optional, checkbox-gated) ---- */
+function leWbEntries() {
+  const entries = [];
+  leLastTargets.forEach((tg) => {
+    const row = leRows.get(tg.nodeId);
+    leLastRules.forEach((ru) => {
+      const key = ru.targetKey || ru.name;
+      if (!row || row.state !== "ok") { entries.push({ tg: tg, key: key, skip: t("webview.leWbSkipError") }); return; }
+      const res = (row.results || []).find((x) => x.name === ru.name);
+      if (!res || res.error) { entries.push({ tg: tg, key: key, skip: t("webview.leRuleFailed") }); return; }
+      if (!res.matched) { entries.push({ tg: tg, key: key, skip: t("webview.leNoMatch") }); return; }
+      entries.push({ tg: tg, key: key, value: res.values.join(",") });
+    });
+  });
+  return entries;
+}
+
+function updateLeWriteBack() {
+  const chk = document.getElementById("leWriteBackChk");
+  if (!chk.checked) return;
+  document.getElementById("leWriteBackOpts").style.display = "";
+  const entries = leWbEntries();
+  const writable = entries.some((e) => e.value !== undefined);
+  document.getElementById("btnLeWriteBack").style.display = writable ? "" : "none";
+  const byKey = new Map();
+  entries.forEach((e) => {
+    if (e.value === undefined) return;
+    if (!byKey.has(e.key)) byKey.set(e.key, new Set());
+    byKey.get(e.key).add(e.value);
+  });
+  let conflict = false;
+  byKey.forEach((set) => { if (set.size > 1) conflict = true; });
+  const globalRadio = document.getElementById("leWbGlobalRadio");
+  globalRadio.disabled = conflict;
+  globalRadio.title = conflict ? t("webview.leWbGlobalConflict") : "";
+  if (conflict && globalRadio.checked) {
+    document.querySelector('input[name="leWbMode"][value="job"]').checked = true;
+  }
+  document.getElementById("leWbPreview").innerHTML = entries.map((e) => {
+    if (e.value === undefined) {
+      return '<div class="wb-skip">' + escapeHtml(e.tg.label) + "  " + escapeHtml(e.key) + " — " + escapeHtml(e.skip) + '</div>';
+    }
+    return '<div>' + escapeHtml(e.tg.label) + "  " + escapeHtml(e.key) + "=" + escapeHtml(e.value) + '</div>';
+  }).join("");
+}
+
+function doLeWriteBack() {
+  const mode = document.querySelector('input[name="leWbMode"]:checked').value;
+  const entries = leWbEntries().filter((e) => e.value !== undefined);
+  if (!entries.length) return;
+  if (mode === "job") {
+    entries.forEach((e) => {
+      const obj = jobParamMap.get(e.tg.nodeId) || {};
+      obj[e.key] = e.value;
+      jobParamMap.set(e.tg.nodeId, obj);
+    });
+    render();
+    toast(t("webview.leWbDoneJob", { count: new Set(entries.map((e) => e.tg.nodeId)).size }));
+  } else {
+    const tp = getTriggerParams() || [];
+    const obj = {};
+    tp.forEach((p) => { if (p[0] !== "") obj[p[0]] = p[1]; });
+    const byKey = new Map();
+    entries.forEach((e) => byKey.set(e.key, e.value));
+    byKey.forEach((v, k) => { obj[k] = v; });
+    params = objToParams(obj);
+    renderKv(); syncJsonFromParams(); renderParamBtn();
+    toast(t("webview.leWbDoneGlobal", { count: byKey.size }));
+  }
+  logMsg(t("webview.leWbLog"), "ok");
+}
+
+/* ---- Result export helpers ---- */
+function leResultTsv() {
+  const lines = [[t("webview.html.thPipeline"), "#"].concat(leLastRules.map((r) => r.name)).join("\t")];
+  leLastTargets.forEach((tg) => {
+    const row = leRows.get(tg.nodeId);
+    const cells = [tg.label, "#" + tg.buildNumber];
+    if (!row || row.state !== "ok") {
+      leLastRules.forEach((_, i) => cells.push(i === 0 && row && row.error ? row.error : ""));
+    } else {
+      const byName = new Map((row.results || []).map((x) => [x.name, x]));
+      leLastRules.forEach((ru) => {
+        const res = byName.get(ru.name);
+        cells.push(res && res.matched ? res.values.join(",") : (res && res.error ? res.error : t("webview.leNoMatch")));
+      });
+    }
+    lines.push(cells.join("\t"));
+  });
+  return lines.join("\n");
+}
+function fallbackCopy(text) {
+  const ta = document.createElement("textarea");
+  ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+  document.body.appendChild(ta); ta.select();
+  try { document.execCommand("copy"); toast(t("webview.leCopied")); }
+  catch (_) { toast(t("webview.leCopyFailed")); }
+  document.body.removeChild(ta);
+}
+function copyTextToClipboard(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(text).then(
+      () => toast(t("webview.leCopied")),
+      () => fallbackCopy(text)
+    );
+  } else {
+    fallbackCopy(text);
+  }
+}
+
+/* ---- Rule create/edit sub-modal ---- */
+function leRuleKind() {
+  const r = document.querySelector('input[name="leRuleKind"]:checked');
+  return r ? r.value : "regex";
+}
+function updateLeRuleKindUI() {
+  const script = leRuleKind() === "script";
+  document.getElementById("leRegexFields").style.display = script ? "none" : "";
+  document.getElementById("leScriptFields").style.display = script ? "" : "none";
+  if (script) document.getElementById("leRuleErr").style.display = "none";
+}
+function openLeRuleModal(rule) {
+  const kind = rule && rule.kind === "script" ? "script" : "regex";
+  document.getElementById("leRuleName").value = rule ? rule.name : "";
+  document.getElementById("leRuleName").readOnly = !!rule;
+  document.querySelector('input[name="leRuleKind"][value="' + kind + '"]').checked = true;
+  document.getElementById("leRulePattern").value = rule && rule.pattern ? rule.pattern : "";
+  document.getElementById("leRuleCode").value = rule && rule.code ? rule.code : "";
+  document.getElementById("leRuleStrategy").value = rule ? rule.strategy : "last";
+  document.getElementById("leRuleTargetKey").value = rule && rule.targetKey ? rule.targetKey : "";
+  updateLeRuleKindUI();
+  validateLePattern();
+  document.getElementById("leRuleOverlay").classList.add("show");
+  const focusId = kind === "script" ? "leRuleCode" : (rule ? "leRulePattern" : "leRuleName");
+  setTimeout(() => document.getElementById(focusId).focus(), 50);
+}
+function validateLePattern() {
+  const errEl = document.getElementById("leRuleErr");
+  if (leRuleKind() !== "regex") { errEl.style.display = "none"; return true; }
+  const p = document.getElementById("leRulePattern").value;
+  let ok = true;
+  if (p) {
+    try { new RegExp(p); } catch (e) { ok = false; errEl.textContent = "✕ " + e.message; }
+  }
+  errEl.style.display = ok ? "none" : "";
+  return ok;
+}
+function saveLeRule() {
+  const kind = leRuleKind();
+  const name = document.getElementById("leRuleName").value.trim();
+  const pattern = document.getElementById("leRulePattern").value;
+  const code = document.getElementById("leRuleCode").value;
+  if (!name) { toast(t("webview.leRuleNameRequired")); return; }
+  if (kind === "regex" && !pattern) { toast(t("webview.leRulePatternRequired")); return; }
+  if (kind === "script" && !code.trim()) { toast(t("webview.leRuleCodeRequired")); return; }
+  if (!validateLePattern()) return;
+  const strategy = document.getElementById("leRuleStrategy").value;
+  const targetKey = document.getElementById("leRuleTargetKey").value.trim();
+  rpc("saveLogRule", { name: name, kind: kind, pattern: pattern, code: code, strategy: strategy, targetKey: targetKey }).then((r) => {
+    if (r && r.logExtractRules) {
+      STATE.logExtractRules = r.logExtractRules;
+      const saved = STATE.logExtractRules.find((x) => x.name === name);
+      if (saved) leSelectedRules.add(saved.id);
+      renderLeRules(); updateLeStartState();
+    }
+    document.getElementById("leRuleOverlay").classList.remove("show");
+    toast(t("webview.leRuleSaved", { name: name }));
+  });
+}
+
+/* ---- Log extract event wiring ---- */
+document.getElementById("btnLogExtract").onclick = openLogExtract;
+document.getElementById("btnLeClose").onclick = () => {
+  if (leRunning) leCancelled = true;
+  document.getElementById("logExtractOverlay").classList.remove("show");
+};
+document.getElementById("btnLeCancel").onclick = () => { leCancelled = true; };
+document.getElementById("btnLeStart").onclick = () => void startLeExtract();
+document.getElementById("btnLeNewRule").onclick = () => openLeRuleModal(null);
+document.getElementById("btnLeRuleCancel").onclick = () => document.getElementById("leRuleOverlay").classList.remove("show");
+document.getElementById("btnLeRuleSave").onclick = saveLeRule;
+document.getElementById("leRulePattern").addEventListener("input", validateLePattern);
+document.querySelectorAll('input[name="leRuleKind"]').forEach((r) => { r.onchange = updateLeRuleKindUI; });
+document.getElementById("leRuleTargetKey").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") { e.preventDefault(); saveLeRule(); }
+});
+document.getElementById("leWriteBackChk").onchange = () => {
+  const chk = document.getElementById("leWriteBackChk");
+  if (!chk.checked) {
+    document.getElementById("leWriteBackOpts").style.display = "none";
+    document.getElementById("btnLeWriteBack").style.display = "none";
+    return;
+  }
+  updateLeWriteBack();
+};
+document.querySelectorAll('input[name="leWbMode"]').forEach((r) => { r.onchange = updateLeWriteBack; });
+document.getElementById("btnLeCopy").onclick = () => copyTextToClipboard(leResultTsv());
+document.getElementById("btnLeExport").onclick = () => {
+  rpc("exportLog", { text: leResultTsv() });
+  toast(t("webview.leExported"));
+};
+document.getElementById("btnLeWriteBack").onclick = () => {
+  const mode = document.querySelector('input[name="leWbMode"]:checked').value;
+  const entries = leWbEntries().filter((e) => e.value !== undefined);
+  if (!entries.length) return;
+  const byKey = new Map();
+  entries.forEach((e) => { if (!byKey.has(e.key)) byKey.set(e.key, new Set()); byKey.get(e.key).add(e.value); });
+  let summary;
+  if (mode === "job") {
+    const jobCount = new Set(entries.map((e) => e.tg.nodeId)).size;
+    summary = escapeHtml(t("webview.leConfirmJob", { count: jobCount })) + "<br><b>" +
+      [...byKey.keys()].map((k) => escapeHtml(k)).join(", ") + "</b>";
+  } else {
+    summary = escapeHtml(t("webview.leConfirmGlobal")) + "<br>" +
+      [...byKey.entries()].map(([k, set]) => "<b>" + escapeHtml(k) + "</b>=" + escapeHtml([...set][0])).join("<br>");
+  }
+  document.getElementById("leConfirmSummary").innerHTML = summary;
+  document.getElementById("leConfirmOverlay").classList.add("show");
+};
+document.getElementById("btnLeConfirmCancel").onclick = () => document.getElementById("leConfirmOverlay").classList.remove("show");
+document.getElementById("btnLeConfirmOk").onclick = () => {
+  document.getElementById("leConfirmOverlay").classList.remove("show");
+  doLeWriteBack();
+};
 
 /* ============ 初始化 ============ */
 (async function init() {

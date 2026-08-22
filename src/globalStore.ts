@@ -1,10 +1,11 @@
 import * as vscode from "vscode";
-import { TreeConfig, emptyTreeConfig, ParamTemplate } from "./types";
+import { TreeConfig, emptyTreeConfig, ParamTemplate, LogExtractRule } from "./types";
 
 const KEY_TREE = "jenkinsBatchTrigger.tree";
 const KEY_PARAMS = "jenkinsBatchTrigger.paramTemplates";
 const KEY_ACTIVE_TPL = "jenkinsBatchTrigger.activeTpl";
 const KEY_TPL_CATEGORIES = "jenkinsBatchTrigger.paramTplCategories";
+const KEY_LOG_RULES = "jenkinsBatchTrigger.logExtractRules";
 
 /**
  * Global storage backed by VSCode globalState.
@@ -64,5 +65,15 @@ export class GlobalStore {
 
   saveActiveTpl(name: string | undefined): void {
     this.context.globalState.update(KEY_ACTIVE_TPL, name);
+  }
+
+  /* ---------------- log extract rules ---------------- */
+
+  loadLogExtractRules(): LogExtractRule[] {
+    return this.context.globalState.get<LogExtractRule[]>(KEY_LOG_RULES) || [];
+  }
+
+  saveLogExtractRules(rules: LogExtractRule[]): void {
+    this.context.globalState.update(KEY_LOG_RULES, rules);
   }
 }
