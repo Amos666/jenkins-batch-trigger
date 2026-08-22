@@ -1384,10 +1384,17 @@ function doLeWriteBack() {
   const entries = leWbEntries().filter((e) => e.value !== undefined);
   if (!entries.length) return;
   if (mode === "job") {
+    const tp = getTriggerParams() || [];
+    const globalObj = {};
+    tp.forEach((p) => { if (p[0] !== "") globalObj[p[0]] = p[1]; });
     entries.forEach((e) => {
-      const obj = jobParamMap.get(e.tg.nodeId) || {};
-      obj[e.key] = e.value;
-      jobParamMap.set(e.tg.nodeId, obj);
+      // Merge into the pipeline's currently effective params (per-job if set, else global),
+      // so existing keys are preserved and only same-named keys are overwritten.
+      const base = jobParamMap.has(e.tg.nodeId)
+        ? Object.assign({}, jobParamMap.get(e.tg.nodeId))
+        : Object.assign({}, globalObj);
+      base[e.key] = e.value;
+      jobParamMap.set(e.tg.nodeId, base);
     });
     render();
     toast(t("webview.leWbDoneJob", { count: new Set(entries.map((e) => e.tg.nodeId)).size }));

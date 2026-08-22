@@ -299,6 +299,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
             <label><input type="radio" name="leWbMode" value="job" checked /> <span data-i18n="webview.html.leWbJob">${t("webview.html.leWbJob")}</span></label>
             <label><input type="radio" name="leWbMode" value="global" id="leWbGlobalRadio" /> <span data-i18n="webview.html.leWbGlobal">${t("webview.html.leWbGlobal")}</span></label>
           </div>
+          <div class="hint" data-i18n="webview.html.leWbMergeHint">${t("webview.html.leWbMergeHint")}</div>
           <div class="le-wb-preview" id="leWbPreview"></div>
         </div>
       </div>
