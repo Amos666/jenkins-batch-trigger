@@ -327,6 +327,7 @@ function render() {
   const ab = document.getElementById("btnAbort");
   ab.disabled = runSel === 0;
   ab.title = runSel > 0 ? t("webview.abortTitle2", {n: runSel}) : t("webview.abortNoneTitle");
+  updateLeBtnState();
   autoSizePipelineColumn();
 }
 
@@ -1163,26 +1164,27 @@ function leGetRules() { return STATE.logExtractRules || []; }
 
 function updateLeBtnState() {
   const btn = document.getElementById("btnLogExtract");
-  const has = STATE.selectedNodes.length > 0;
+  const has = checkedVisibleData().length > 0;
   btn.disabled = !has;
   btn.title = has ? t("webview.html.leTitle") : t("webview.leNoSelection");
 }
 
 function openLogExtract() {
-  if (!STATE.selectedNodes.length) { toast(t("webview.leNoSelection")); return; }
-  leTargets = STATE.selectedNodes.map((d) => ({
+  const checked = checkedVisibleData();
+  if (!checked.length) { toast(t("webview.leNoSelection")); return; }
+  leTargets = checked.map((d) => ({
     nodeId: d.id,
     label: getPipelineDisplayLabel(d),
     jobPath: d.jobPath || d.name,
     buildNumber: d.buildNumber || 0,
     status: d.status || "unknown",
-    checked: !!d.buildNumber,
   }));
   leRows = new Map();
   leCancelled = false;
   document.getElementById("leResultWrap").style.display = "none";
   document.getElementById("btnLeCopy").style.display = "none";
   document.getElementById("btnLeExport").style.display = "none";
+  document.getElementById("btnLeExportJson").style.display = "none";
   document.getElementById("btnLeWriteBack").style.display = "none";
   document.getElementById("leWriteBackChk").checked = false;
   document.getElementById("leWriteBackOpts").style.display = "none";
@@ -1228,24 +1230,22 @@ function renderLeRules() {
 function renderLeTargets() {
   const box = document.getElementById("leTargetList");
   box.innerHTML = "";
-  leTargets.forEach((tg, i) => {
+  leTargets.forEach((tg) => {
     const row = document.createElement("div");
     row.className = "le-target-row" + (tg.buildNumber ? "" : " disabled");
     const statusTxt = tg.buildNumber
       ? (tg.status === "running" ? t("webview.leRunningNote") : "")
       : t("webview.leNoBuild");
-    row.innerHTML = '<input type="checkbox" data-leidx="' + i + '"' + (tg.checked && tg.buildNumber ? " checked" : "") + (tg.buildNumber ? "" : " disabled") + ' />' +
-      '<span class="tname">' + escapeHtml(tg.label) + '</span>' +
+    row.innerHTML = '<span class="tname">' + escapeHtml(tg.label) + '</span>' +
       (tg.buildNumber ? '<span class="tbuild">#' + tg.buildNumber + '</span>' : '') +
       (statusTxt ? '<span class="tstatus' + (tg.buildNumber ? '' : ' warn') + '">' + escapeHtml(statusTxt) + '</span>' : '');
-    row.querySelector("input").onchange = (e) => { tg.checked = e.target.checked; updateLeStartState(); };
     box.appendChild(row);
   });
   document.getElementById("leTargetCount").textContent = leTargets.filter((x) => x.buildNumber).length;
 }
 
 function updateLeStartState() {
-  const ok = leSelectedRules.size > 0 && leTargets.some((x) => x.checked && x.buildNumber) && !leRunning;
+  const ok = leSelectedRules.size > 0 && leTargets.some((x) => x.buildNumber) && !leRunning;
   document.getElementById("btnLeStart").disabled = !ok;
 }
 
@@ -1278,7 +1278,7 @@ function renderLeResults(targets, rules) {
 
 async function startLeExtract() {
   const rules = leGetRules().filter((r) => leSelectedRules.has(r.id));
-  const targets = leTargets.filter((x) => x.checked && x.buildNumber);
+  const targets = leTargets.filter((x) => x.buildNumber);
   if (!rules.length || !targets.length || leRunning) return;
   leRunning = true; leCancelled = false;
   leRows = new Map();
@@ -1289,6 +1289,7 @@ async function startLeExtract() {
   document.getElementById("leResultWrap").style.display = "";
   document.getElementById("btnLeCopy").style.display = "none";
   document.getElementById("btnLeExport").style.display = "none";
+  document.getElementById("btnLeExportJson").style.display = "none";
   document.getElementById("btnLeWriteBack").style.display = "none";
   document.getElementById("btnLeStart").style.display = "none";
   document.getElementById("btnLeCancel").style.display = "";
@@ -1328,6 +1329,7 @@ async function startLeExtract() {
   document.getElementById("leSummary").textContent = t("webview.leSummary", { ok: ok, nomatch: nomatch, err: err });
   document.getElementById("btnLeCopy").style.display = "";
   document.getElementById("btnLeExport").style.display = "";
+  document.getElementById("btnLeExportJson").style.display = "";
   updateLeWriteBack();
 }
 
@@ -1421,6 +1423,28 @@ function leResultTsv() {
     lines.push(cells.join("\t"));
   });
   return lines.join("\n");
+}
+function leResultJson() {
+  const out = {
+    generated_at: new Date().toISOString(),
+    rules: leLastRules.map((r) => ({ name: r.name, kind: r.kind || "regex", strategy: r.strategy, targetKey: r.targetKey || "" })),
+    pipelines: [],
+  };
+  leLastTargets.forEach((tg) => {
+    const row = leRows.get(tg.nodeId);
+    const item = { pipeline: tg.label, jobPath: tg.jobPath, buildNumber: tg.buildNumber, values: {} };
+    if (!row || row.state !== "ok") {
+      item.error = (row && row.error) || t("webview.leFetchFailed");
+    } else {
+      leLastRules.forEach((ru) => {
+        const res = (row.results || []).find((x) => x.name === ru.name);
+        if (res && res.error) item.values[ru.name] = { error: res.error };
+        else item.values[ru.name] = res && res.matched ? res.values : [];
+      });
+    }
+    out.pipelines.push(item);
+  });
+  return JSON.stringify(out, null, 2);
 }
 function fallbackCopy(text) {
   const ta = document.createElement("textarea");
@@ -1531,6 +1555,10 @@ document.getElementById("btnLeCopy").onclick = () => copyTextToClipboard(leResul
 document.getElementById("btnLeExport").onclick = () => {
   rpc("exportLog", { text: leResultTsv() });
   toast(t("webview.leExported"));
+};
+document.getElementById("btnLeExportJson").onclick = () => {
+  rpc("exportLog", { text: leResultJson(), language: "json" });
+  toast(t("webview.leExportedJson"));
 };
 document.getElementById("btnLeWriteBack").onclick = () => {
   const mode = document.querySelector('input[name="leWbMode"]:checked').value;

@@ -28,7 +28,7 @@ type InMsg =
   | { type: "setPostBatch"; id: number; data: { jobPaths: string[]; enabled: boolean } }
   | { type: "openActionsConfig" }
   | { type: "openBuild"; data: { url: string } }
-  | { type: "exportLog"; data: { text: string } }
+  | { type: "exportLog"; data: { text: string; language?: string } }
   | { type: "clearSelection" };
 
 interface LoadResult extends Snapshot {
@@ -213,7 +213,7 @@ export class WebviewProvider {
         }
         break;
       case "exportLog": {
-        const doc = await vscode.workspace.openTextDocument({ content: m.data.text, language: "log" });
+        const doc = await vscode.workspace.openTextDocument({ content: m.data.text, language: m.data.language || "log" });
         const editor = await vscode.window.showTextDocument(doc, { preview: false });
         const end = doc.lineAt(doc.lineCount - 1).range.end;
         editor.selection = new vscode.Selection(new vscode.Position(0, 0), end);

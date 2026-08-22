@@ -309,7 +309,8 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
       <button class="btn" id="btnLeClose" data-i18n="webview.closeBtn">${t("webview.closeBtn")}</button>
       <button class="btn" id="btnLeCancel" style="display:none" data-i18n="webview.cancelBtn">${t("webview.cancelBtn")}</button>
       <button class="btn" id="btnLeCopy" style="display:none" data-i18n="webview.html.leCopy">${t("webview.html.leCopy")}</button>
-      <button class="btn" id="btnLeExport" style="display:none" data-i18n="webview.html.leExport">${t("webview.html.leExport")}</button>
+      <button class="btn" id="btnLeExport" style="display:none" data-i18n="webview.html.leExport" data-i18n-title="webview.html.leExportTitle">${t("webview.html.leExport")}</button>
+      <button class="btn" id="btnLeExportJson" style="display:none" data-i18n="webview.html.leExportJson">${t("webview.html.leExportJson")}</button>
       <button class="btn" id="btnLeWriteBack" style="display:none" data-i18n="webview.html.leWriteBackBtn">${t("webview.html.leWriteBackBtn")}</button>
       <button class="btn primary" id="btnLeStart" data-i18n="webview.html.leStart">${t("webview.html.leStart")}</button>
     </div>
