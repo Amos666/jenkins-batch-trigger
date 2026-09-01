@@ -804,8 +804,11 @@ export class StateService {
         errors.push(t("state.unknownJob", { id }));
         continue;
       }
-      // Per-job params take priority over the global batch params.
-      const effectiveParams = { ...((jobParamsMap && jobParamsMap[id]) || params) };
+      // Merge: start from the global/template params, then overlay per-job
+      // params (same-named keys are overridden by per-job values). Jobs without
+      // per-job params just use the global params as-is.
+      const perJob = (jobParamsMap && jobParamsMap[id]) || {};
+      const effectiveParams = { ...params, ...perJob };
       const pipelineId = node.jobPath;
       const preEnabled = cfg.pre_enabled_pipelines.includes(pipelineId);
       const postEnabled = cfg.post_enabled_pipelines.includes(pipelineId);

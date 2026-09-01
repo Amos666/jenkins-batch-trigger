@@ -280,10 +280,11 @@ function render() {
     if (expandedParamJobId === d.id && unsavedParamText !== null) {
       paramText = unsavedParamText;
     } else {
-      // Show effective params: per-job params if set, otherwise global batch params.
-      // This lets users see the real trigger params for this job at a glance.
-      const eff = getEffectiveParams(d.id);
-      paramText = (eff && Object.keys(eff).length > 0) ? JSON.stringify(eff, null, 2) : "";
+      // Show only this job's own override params (empty by default).
+      // Global/template params are NOT baked in here — at trigger time the
+      // backend merges them with these overrides (same-named keys use the
+      // per-job value). This keeps the editor as a pure override layer.
+      paramText = jobP ? JSON.stringify(jobP, null, 2) : "";
     }
     // Escape HTML special chars so textarea content is not misparsed by the HTML parser.
     const paramTextEscaped = escapeHtml(paramText);
@@ -294,7 +295,7 @@ function render() {
       `<button class="btn sm" data-paramsave="${d.id}">${t("webview.save")}</button>` +
       `<button class="btn sm" data-paramclear="${d.id}">${t("webview.clear")}</button>` +
       `</div></div>` +
-      `<div class="job-param-status" data-jobid="${d.id}">${hasJobParams ? t("webview.paramSet") : (paramText ? t("webview.paramInherited") : "")}</div>` +
+      `<div class="job-param-status" data-jobid="${d.id}">${hasJobParams ? t("webview.paramSet") : (hasGlobalParams ? t("webview.paramInherited") : "")}</div>` +
       `</td>`;
     tbody.appendChild(paramTr);
   });
@@ -371,13 +372,15 @@ function clearJobParam(jobId) {
   toast(t("webview.paramCleared"));
   render();
 }
-// Get effective params for a job: per-job params if set, otherwise global params.
+// Get effective params for a job: global/template params merged with per-job
+// overrides (per-job values win on same-named keys). Mirrors the backend
+// merge logic in state.ts trigger().
 function getEffectiveParams(jobId) {
-  if (jobParamMap.has(jobId)) return jobParamMap.get(jobId);
   const tp = getTriggerParams();
   if (tp === null) return null;
   const obj = {};
   tp.forEach((p) => { if (p[0] !== "") obj[p[0]] = p[1]; });
+  if (jobParamMap.has(jobId)) Object.assign(obj, jobParamMap.get(jobId));
   return obj;
 }
 
@@ -1384,15 +1387,13 @@ function doLeWriteBack() {
   const entries = leWbEntries().filter((e) => e.value !== undefined);
   if (!entries.length) return;
   if (mode === "job") {
-    const tp = getTriggerParams() || [];
-    const globalObj = {};
-    tp.forEach((p) => { if (p[0] !== "") globalObj[p[0]] = p[1]; });
     entries.forEach((e) => {
-      // Merge into the pipeline's currently effective params (per-job if set, else global),
-      // so existing keys are preserved and only same-named keys are overwritten.
+      // Write back into the job's own override params only (global/template
+      // params are merged at trigger time, so no need to bake them in).
+      // Existing per-job keys are preserved; same-named keys are overwritten.
       const base = jobParamMap.has(e.tg.nodeId)
         ? Object.assign({}, jobParamMap.get(e.tg.nodeId))
-        : Object.assign({}, globalObj);
+        : {};
       base[e.key] = e.value;
       jobParamMap.set(e.tg.nodeId, base);
     });
