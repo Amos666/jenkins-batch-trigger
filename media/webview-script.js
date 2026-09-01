@@ -206,8 +206,28 @@ function autoSizePipelineColumn() {
 function visibleData() {
   let list = STATE.selectedNodes.slice();
   const q = search.toLowerCase();
-  list = list.filter((d) => d.name.toLowerCase().includes(q) && (statusFilter === "all" || d.status === statusFilter));
+  list = list.filter((d) => rowMatchesSearch(d, q) && (statusFilter === "all" || d.status === statusFilter));
   return list;
+}
+// Match a row against the search query using the values actually displayed in
+// the Pipeline column:
+//   1. The display label (job name, or "parent/job" / "grandparent/parent/job"
+//      combo depending on the current display level) — so partial combos like
+//      "release19/testjob1" match what the user sees.
+//   2. Every ancestor directory segment of the job path — so filtering works
+//      at ANY directory depth (e.g. "k8s" matches even though only the last
+//      directory appears in the combo label), not just the last one.
+function rowMatchesSearch(d, q) {
+  if (!q) return true;
+  // 1. Displayed label (main line of the Pipeline column).
+  const label = getPipelineDisplayLabel(d).toLowerCase();
+  if (label.includes(q)) return true;
+  // 2. Full path segments — any single segment (job name or any ancestor dir).
+  const fullPath = (d.jobPath || d.name).toLowerCase();
+  if (fullPath.split("/").some((p) => p && p.includes(q))) return true;
+  // 3. Partial multi-segment combos, e.g. "k8s/releaseproject1".
+  if (fullPath.includes(q)) return true;
+  return false;
 }
 // Jobs that are both visible (pass search/filter) and checked in the webview.
 // Batch trigger/abort only operate on these.
