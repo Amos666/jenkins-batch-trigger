@@ -40,6 +40,7 @@
       { "command": "jenkins-batch-trigger.deleteNode", "title": "Delete", "category": "Jenkins", "icon": "$(trash)" },
       { "command": "jenkins-batch-trigger.refreshNode", "title": "Refresh Status", "category": "Jenkins", "icon": "$(refresh)" },
       { "command": "jenkins-batch-trigger.openBuild", "title": "Open Build in Browser", "category": "Jenkins" },
+      { "command": "jenkins-batch-trigger.batchTrigger", "title": "Batch Trigger", "category": "Jenkins", "icon": "$(play)" },
       { "command": "jenkins-batch-trigger.openSettings", "title": "Open Settings", "category": "Jenkins" },
       { "command": "jenkins-batch-trigger.setApiToken", "title": "Set API Token", "category": "Jenkins" },
       { "command": "jenkins-batch-trigger.configConn", "title": "Configure Jenkins Connection", "category": "Jenkins", "icon": "$(settings-gear)" },
