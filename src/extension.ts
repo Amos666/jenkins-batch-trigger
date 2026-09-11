@@ -325,6 +325,51 @@ function registerCommands(
       }
     }),
 
+    // ---- Batch trigger (exposed so other extensions can trigger jobs in their flows) ----
+
+    vscode.commands.registerCommand("jenkins-batch-trigger.batchTrigger", async (args?: BatchTriggerArgs): Promise<BatchTriggerResult> => {
+      const a = args ?? {};
+      const jobNodes = Object.values(state.treeConfig.nodes).filter((n): n is TreeNode & { jobPath: string } => n.type === "job" && !!n.jobPath);
+
+      // Resolve targets: explicit nodeIds + jobPaths looked up in the tree.
+      const ids = new Set<string>(a.nodeIds ?? []);
+      const errors: string[] = [];
+      for (const jp of a.jobPaths ?? []) {
+        const node = jobNodes.find((n) => n.jobPath === jp);
+        if (node) ids.add(node.id);
+        else errors.push(t("state.unknownJob", { id: jp }));
+      }
+      // No targets specified → fall back to the current tree checkbox selection
+      // (same behaviour as the webview "batch trigger" button).
+      if (ids.size === 0 && (a.nodeIds?.length ?? 0) === 0 && (a.jobPaths?.length ?? 0) === 0) {
+        for (const id of state.selected) ids.add(id);
+      }
+      const nodeIds = [...ids];
+      if (nodeIds.length === 0) {
+        const msgs = errors.length > 0 ? errors : [t("cmd.batchTriggerNone")];
+        if (!a.silent) void vscode.window.showWarningMessage(msgs[0]);
+        return { ok: false, nodeIds: [], errors: msgs };
+      }
+
+      // Remap per-job params (keyed by job path) to node IDs for state.trigger().
+      const jobParamsMap: Record<string, Record<string, string>> = {};
+      for (const [jp, p] of Object.entries(a.jobParams ?? {})) {
+        const node = jobNodes.find((n) => n.jobPath === jp);
+        if (node) jobParamsMap[node.id] = p;
+      }
+
+      const { errors: triggerErrors } = await state.trigger(nodeIds, a.params ?? {}, jobParamsMap);
+      const allErrors = [...errors, ...triggerErrors];
+      if (!a.silent) {
+        if (allErrors.length > 0) {
+          void vscode.window.showWarningMessage(t("cmd.batchTriggerErrors", { count: allErrors.length }));
+        } else {
+          void vscode.window.showInformationMessage(t("cmd.batchTriggered", { count: nodeIds.length }));
+        }
+      }
+      return { ok: allErrors.length === 0, nodeIds, errors: allErrors };
+    }),
+
     // ---- Settings ----
 
     vscode.commands.registerCommand("jenkins-batch-trigger.openSettings", async () => {
@@ -386,6 +431,37 @@ function registerCommands(
 
   // Dispose the build poller on deactivation.
   context.subscriptions.push({ dispose: () => state.poller.dispose() });
+}
+
+/**
+ * Arguments accepted by the `jenkins-batch-trigger.batchTrigger` command,
+ * so other extensions can trigger jobs inside their own workflows:
+ *
+ *   await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger", {
+ *     jobPaths: ["team-a/deploy-service"],
+ *     params: { BRANCH: "main" },
+ *   });
+ */
+export interface BatchTriggerArgs {
+  /** Internal tree node IDs of job nodes (advanced). */
+  nodeIds?: string[];
+  /** Jenkins job full paths, e.g. "team-a/deploy-service". */
+  jobPaths?: string[];
+  /** Shared params applied to every triggered job. */
+  params?: Record<string, string>;
+  /** Per-job params keyed by Jenkins job path (override shared params). */
+  jobParams?: Record<string, Record<string, string>>;
+  /** Suppress the result notification (for programmatic flows). */
+  silent?: boolean;
+}
+
+/** Result of the `jenkins-batch-trigger.batchTrigger` command. */
+export interface BatchTriggerResult {
+  ok: boolean;
+  /** Node IDs that were submitted to the trigger flow. */
+  nodeIds: string[];
+  /** Per-job error messages (unknown jobs, pre-action / trigger failures). */
+  errors: string[];
 }
 
 export function deactivate(): void {
