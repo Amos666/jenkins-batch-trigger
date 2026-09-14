@@ -217,6 +217,71 @@ errs.length ? errs.length + ' 条' : '';
 - 脚本里 `console.log` 无效（无控制台输出），调试靠 `result` 返回值
 - 规则是全局保存的，团队内常用规则建一次即可长期复用
 
+## 扩展间调用：batchTrigger 命令
+
+「批量触发」能力已注册为 VSCode 命令 `jenkins-batch-trigger.batchTrigger`，其他插件可在自己的流程中调用（如发版流水线、自动化任务链）。行为与页面「批量触发」按钮完全一致：使用参数模板的参数走 `buildWithParameters`，启用 Pre/Post Actions 的 job 会执行完整的 Action 链路。
+
+### 命令签名
+
+```typescript
+vscode.commands.executeCommand(
+  "jenkins-batch-trigger.batchTrigger",
+  tplName?: string,    // 可选①：参数模板名称；不传则使用当前页面激活的参数模板
+  jobPaths?: string[]  // 可选②：Jenkins job 完整路径数组；不传则使用页面当前勾选的 job
+): Promise<BatchTriggerResult>
+```
+
+**参数说明**：
+
+| 参数 | 类型 | 说明 |
+|------|------|------|
+| `tplName` | `string \| undefined` | 参数模板名称（在「参数」弹框中保存的模板）。传入的模板不存在时命令直接失败并在 `errors` 中返回错误；不传则回退到页面当前激活的模板（与手动点按钮一致），无激活模板时不带参数触发 |
+| `jobPaths` | `string[] \| undefined` | Jenkins job 完整路径，如 `infra/k8s/releaseproject1/release19/testjob1`，多个以数组传入。路径需已添加到 Pipeline 树中（按路径精确匹配，容忍首尾斜杠）；不传则使用页面当前勾选的 job |
+
+**返回值** `BatchTriggerResult`：
+
+```typescript
+{
+  ok: boolean;                      // 全部成功为 true
+  nodeIds: string[];                // 实际触发的树节点 ID
+  params: Record<string, string>;   // 实际生效的触发参数（来自模板）
+  errors: string[];                 // 每个失败的错误信息（模板/job 不存在、触发失败等）
+}
+```
+
+### 使用示例
+
+```typescript
+// 1. 指定模板 + 指定 job 地址（最常用：外部流程明确驱动）
+const r = await vscode.commands.executeCommand(
+  "jenkins-batch-trigger.batchTrigger",
+  "prod-full",                                     // 参数模板名
+  ["infra/k8s/releaseproject1/release20/testjob1"] // job 路径（多个传数组）
+);
+if (!r.ok) console.error("触发失败:", r.errors);
+
+// 2. 只指定 job 地址，参数用页面当前激活的模板
+await vscode.commands.executeCommand(
+  "jenkins-batch-trigger.batchTrigger",
+  undefined,                                                       // 不指定模板
+  ["infra/k8s/releaseproject1/release19/testjob1", "infra/k8s/releaseproject1/release19/testjob2"]
+);
+
+// 3. 只指定模板，目标用页面当前勾选的 job
+await vscode.commands.executeCommand(
+  "jenkins-batch-trigger.batchTrigger",
+  "test-smoke"  // 模板名；job 地址不传 → 触发页面上勾选的 job
+);
+
+// 4. 两个都不传：完全等价于点击页面的「批量触发」按钮
+await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
+
+// 5. 也可在 keybindings / 任务里引用（无参数，触发当前勾选）
+//    命令 ID: jenkins-batch-trigger.batchTrigger（命令面板中名称为 "Jenkins: Batch Trigger"）
+```
+
+> 注意：`jobPaths` 中的路径必须与 Pipeline 树中添加的 job 路径一致（即 Jenkins 的 fullName，如 `infra/k8s/releaseproject1/release19/testjob1`）。传入树中不存在的路径会记入 `errors`，不会静默忽略。
+
 ## Pre/Post Action 系统
 
 ### 概念
