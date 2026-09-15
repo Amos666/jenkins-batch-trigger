@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as vm from "vm";
-import { TreeNode, TreeConfig, genId, ParamTemplate, nextId, Job, LogExtractRule, LogExtractRuleKind, LogExtractStrategy, LogExtractResult } from "./types";
+import { TreeNode, TreeConfig, genId, ParamTemplate, nextId, Job, LogExtractRule, LogExtractRuleKind, LogExtractStrategy, LogExtractResult, WebviewUiState } from "./types";
 import { GlobalStore } from "./globalStore";
 import { JenkinsClient, JenkinsCredsProvider } from "./jenkinsClient";
 import { JobPickerPanel } from "./jobPickerPanel";
@@ -786,6 +786,14 @@ export class StateService {
 
   loadActiveTpl(): string | undefined {
     return this.store.loadActiveTpl();
+  }
+
+  saveUiState(s: WebviewUiState): void {
+    this.store.saveUiState(s);
+  }
+
+  loadUiState(): WebviewUiState | undefined {
+    return this.store.loadUiState();
   }
 
   /* ---------------- Jenkins actions (webview rpc) ---------------- */

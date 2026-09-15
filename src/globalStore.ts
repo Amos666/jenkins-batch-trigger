@@ -1,11 +1,12 @@
 import * as vscode from "vscode";
-import { TreeConfig, emptyTreeConfig, ParamTemplate, LogExtractRule } from "./types";
+import { TreeConfig, emptyTreeConfig, ParamTemplate, LogExtractRule, WebviewUiState } from "./types";
 
 const KEY_TREE = "jenkinsBatchTrigger.tree";
 const KEY_PARAMS = "jenkinsBatchTrigger.paramTemplates";
 const KEY_ACTIVE_TPL = "jenkinsBatchTrigger.activeTpl";
 const KEY_TPL_CATEGORIES = "jenkinsBatchTrigger.paramTplCategories";
 const KEY_LOG_RULES = "jenkinsBatchTrigger.logExtractRules";
+const KEY_UI_STATE = "jenkinsBatchTrigger.uiState";
 
 /**
  * Global storage backed by VSCode globalState.
@@ -65,6 +66,16 @@ export class GlobalStore {
 
   saveActiveTpl(name: string | undefined): void {
     this.context.globalState.update(KEY_ACTIVE_TPL, name);
+  }
+
+  /* ---------------- webview UI state (params / checked rows / per-job params) ---------------- */
+
+  loadUiState(): WebviewUiState | undefined {
+    return this.context.globalState.get<WebviewUiState>(KEY_UI_STATE);
+  }
+
+  saveUiState(s: WebviewUiState): void {
+    this.context.globalState.update(KEY_UI_STATE, s);
   }
 
   /* ---------------- log extract rules ---------------- */

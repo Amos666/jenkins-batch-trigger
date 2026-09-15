@@ -126,6 +126,40 @@ function applySnapshot(s) {
   render();
   renderParamTpl();
   updateLeBtnState();
+  scheduleSyncUiState();
+}
+
+/* ============ UI 状态同步到宿主 ============ */
+// The batchTrigger command (exposed to other extensions) must trigger exactly
+// what the page button would: current param-editor params, table-checked rows
+// and per-job params. These live only in webview memory, so every change is
+// synced (debounced + change-detected) to the host and restored on load.
+let _syncUiTimer = null;
+let _lastSyncedUiJson = "";
+function currentUiState() {
+  // Prefer what the button would actually send (live JSON editor content);
+  // fall back to the last-valid params array when the JSON box is invalid.
+  const tp = getTriggerParams();
+  const pairs = (tp || params).filter((p) => p[0] !== "");
+  const jp = {};
+  jobParamMap.forEach((v, k) => { jp[k] = v; });
+  return {
+    params: pairs.map((p) => [p[0], p[1]]),
+    selectedIds: STATE.selectedNodes.map((d) => d.id),
+    checkedIds: [...webviewChecked],
+    jobParams: jp,
+  };
+}
+function scheduleSyncUiState() {
+  if (_syncUiTimer) return;
+  _syncUiTimer = setTimeout(() => {
+    _syncUiTimer = null;
+    const s = currentUiState();
+    const json = JSON.stringify(s);
+    if (json === _lastSyncedUiJson) return;
+    _lastSyncedUiJson = json;
+    rpc("saveUiState", s);
+  }, 300);
 }
 
 /* ============ 工具 ============ */
@@ -381,6 +415,7 @@ function saveJobParam(jobId) {
   if (statusEl) { statusEl.textContent = t("webview.paramSaved"); statusEl.className = "job-param-status ok"; }
   ta.classList.remove("err");
   toast(t("webview.paramSavedToast"));
+  scheduleSyncUiState();
   // Collapse the editor after successful save.
   expandedParamJobId = null;
   render();
@@ -389,6 +424,7 @@ function clearJobParam(jobId) {
   jobParamMap.delete(jobId);
   // Collapse the editor after clear.
   expandedParamJobId = null;
+  scheduleSyncUiState();
   toast(t("webview.paramCleared"));
   render();
 }
@@ -426,12 +462,12 @@ function syncJsonFromParams() {
 function syncParamsFromJson() {
   const ta = document.getElementById("paramJson"); if (!ta) return;
   const txt = ta.value.trim();
-  if (txt === "") { params = []; setPjStatus(true); renderKv(); renderParamBtn(); return; }
+  if (txt === "") { params = []; setPjStatus(true); renderKv(); renderParamBtn(); scheduleSyncUiState(); return; }
   let obj; try { obj = JSON.parse(txt); } catch (e) { setPjStatus(false, e.message); return; }
   if (!obj || typeof obj !== "object" || Array.isArray(obj)) { setPjStatus(false, t("webview.jsonNotObjShort")); return; }
-  params = objToParams(obj); setPjStatus(true); renderKv(); renderParamBtn();
+  params = objToParams(obj); setPjStatus(true); renderKv(); renderParamBtn(); scheduleSyncUiState();
 }
-function onParamsChanged() { syncJsonFromParams(); renderParamBtn(); }
+function onParamsChanged() { syncJsonFromParams(); renderParamBtn(); scheduleSyncUiState(); }
 function getTriggerParams() {
   const ta = document.getElementById("paramJson");
   if (!ta) return params.slice();
@@ -673,6 +709,7 @@ document.getElementById("tbody").addEventListener("change", (e) => {
     const id = e.target.dataset.id;
     if (e.target.checked) webviewChecked.add(id);
     else webviewChecked.delete(id);
+    scheduleSyncUiState();
     render();
   }
   if (e.target.classList.contains("prechk")) {
@@ -698,6 +735,7 @@ document.getElementById("checkAll").addEventListener("change", (e) => {
   } else {
     list.forEach((d) => webviewChecked.delete(d.id));
   }
+  scheduleSyncUiState();
   render();
 });
 // Header thPre: double-click to toggle PRE actions for all visible rows.
@@ -1430,6 +1468,7 @@ function doLeWriteBack() {
     renderKv(); syncJsonFromParams(); renderParamBtn();
     toast(t("webview.leWbDoneGlobal", { count: byKey.size }));
   }
+  scheduleSyncUiState();
   logMsg(t("webview.leWbLog"), "ok");
 }
 
@@ -1616,16 +1655,38 @@ document.getElementById("btnLeConfirmOk").onclick = () => {
 (async function init() {
   const cfg = await rpc("load", {});
   applySnapshot(cfg);
-  if (document.getElementById("autoChk").checked) { startAutoRefresh(); }
-  if (cfg.activeTpl) {
-    const tpl = STATE.paramTemplates.find((t) => t.name === cfg.activeTpl);
-    if (tpl) {
-      params = tpl.params.map((p) => p.slice());
-      activeParamTpl = tpl.name;
-      renderKv();
-      renderParamBtn();
-      renderParamTpl();
-      syncJsonFromParams();
+  // Restore last-known webview UI state (checked rows / per-job params), so the
+  // batchTrigger command and the page button always see the same targets even
+  // after a webview reload.
+  const ui = cfg.uiState;
+  if (ui) {
+    const curIds = new Set(STATE.selectedNodes.map((d) => d.id));
+    const wasSelected = new Set(ui.selectedIds || []);
+    const wasChecked = new Set(ui.checkedIds || []);
+    webviewChecked = new Set();
+    for (const id of curIds) {
+      if (wasChecked.has(id)) webviewChecked.add(id);          // kept checked
+      else if (!wasSelected.has(id)) webviewChecked.add(id);   // newly selected → auto-check
+      // else: user had explicitly unchecked it → stay unchecked
     }
+    jobParamMap = new Map(Object.entries(ui.jobParams || {}));
   }
+  if (document.getElementById("autoChk").checked) { startAutoRefresh(); }
+  // Params: prefer the last-known editor params (exactly what the button sends);
+  // fall back to the active template when the page has never been used.
+  let restored = ui && ui.params ? ui.params.map((p) => [p[0], p[1]]) : null;
+  if (!restored && cfg.activeTpl) {
+    const tpl = STATE.paramTemplates.find((t) => t.name === cfg.activeTpl);
+    if (tpl) { restored = tpl.params.map((p) => p.slice()); activeParamTpl = tpl.name; }
+  }
+  if (restored) {
+    params = restored;
+    renderKv();
+    renderParamBtn();
+    renderParamTpl();
+    syncJsonFromParams();
+  }
+  render();
+  // Skip re-syncing what was just restored.
+  _lastSyncedUiJson = JSON.stringify(currentUiState());
 })();

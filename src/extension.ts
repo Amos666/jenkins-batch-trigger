@@ -4,7 +4,7 @@ import { SidebarTreeProvider } from "./treeProvider";
 import { WebviewProvider } from "./webviewProvider";
 import { StateService } from "./state";
 import { JenkinsSettings } from "./jenkinsClient";
-import { TreeNode, ParamTemplate } from "./types";
+import { TreeNode } from "./types";
 import { initI18n, t, setLocale, onLocaleChange, getWebviewMessages } from "./i18n";
 import { Locale } from "./i18n/types";
 
@@ -328,50 +328,62 @@ function registerCommands(
     // ---- Batch trigger (exposed so other extensions can trigger jobs in their flows) ----
 
     vscode.commands.registerCommand("jenkins-batch-trigger.batchTrigger", async (tplName?: string, jobPaths?: string[]): Promise<BatchTriggerResult> => {
-      // ---- Resolve params from the param template ----
-      // tplName given → use that template (error out if it doesn't exist).
-      // tplName omitted → use the currently active template on the page,
-      // exactly like clicking the webview "batch trigger" button.
-      let tpl: ParamTemplate | undefined;
+      // Mirrors the webview "batch trigger" button exactly:
+      //   params   = the page param editor's current params (persisted webview UI state)
+      //              when tplName is omitted; the named template's params otherwise.
+      //   targets  = the page table's checked rows when jobPaths is omitted.
+      //   jobParams = the page's per-job params (override the global params).
+      const ui = state.loadUiState();
+      const errors: string[] = [];
+
+      // ---- Params ----
+      const params: Record<string, string> = {};
       if (tplName !== undefined && tplName !== null && tplName !== "") {
-        tpl = state.paramTemplates.find((tp) => tp.name === tplName);
+        const tpl = state.paramTemplates.find((tp) => tp.name === tplName);
         if (!tpl) {
           const msg = t("cmd.batchTriggerTplNotFound", { name: tplName });
           void vscode.window.showWarningMessage(msg);
           return { ok: false, nodeIds: [], params: {}, errors: [msg] };
         }
+        for (const [k, v] of tpl.params) if (k !== "") params[k] = v;
+      } else if (ui && ui.params) {
+        for (const [k, v] of ui.params) if (k !== "") params[k] = v;
       } else {
+        // Webview never used: fall back to the active template.
         const activeName = state.loadActiveTpl();
-        tpl = activeName ? state.paramTemplates.find((tp) => tp.name === activeName) : undefined;
+        const tpl = activeName ? state.paramTemplates.find((tp) => tp.name === activeName) : undefined;
+        if (tpl) for (const [k, v] of tpl.params) if (k !== "") params[k] = v;
       }
-      const params: Record<string, string> = {};
-      if (tpl) for (const [k, v] of tpl.params) params[k] = v;
 
-      // ---- Resolve target job nodes ----
-      // jobPaths given → look each one up in the tree by Jenkins job path
-      // (leading/trailing slashes are tolerated). jobPaths omitted → fall back
-      // to the jobs currently checked on the page.
+      // ---- Target job nodes ----
       const jobNodes = Object.values(state.treeConfig.nodes).filter((n): n is TreeNode & { jobPath: string } => n.type === "job" && !!n.jobPath);
-      const errors: string[] = [];
-      const ids = new Set<string>();
+      let nodeIds: string[];
       if (jobPaths !== undefined && jobPaths !== null && jobPaths.length > 0) {
+        const ids = new Set<string>();
         for (const jp of jobPaths) {
           const norm = String(jp).replace(/^\/+|\/+$/g, "");
           const node = jobNodes.find((n) => n.jobPath === norm);
           if (node) ids.add(node.id);
           else errors.push(t("state.unknownJob", { id: String(jp) }));
         }
+        nodeIds = [...ids];
       } else {
-        for (const id of state.selected) ids.add(id);
+        // Same as the button: only the rows CHECKED in the webview table
+        // (intersected with the current sidebar selection).
+        const selected = new Set(state.selected);
+        nodeIds = ui ? [...new Set((ui.checkedIds ?? []).filter((id) => selected.has(id)))] : [...selected];
       }
-      const nodeIds = [...ids];
       if (nodeIds.length === 0) {
         const msgs = errors.length > 0 ? errors : [t("cmd.batchTriggerNone")];
         if (msgs.length === 1) void vscode.window.showWarningMessage(msgs[0]);
         return { ok: false, nodeIds: [], params, errors: msgs };
       }
 
-      const { errors: triggerErrors } = await state.trigger(nodeIds, params);
+      // ---- Per-job params (page per-job overrides, same merge as the button) ----
+      const jobParamsMap: Record<string, Record<string, string>> = {};
+      if (ui) for (const id of nodeIds) if (ui.jobParams[id]) jobParamsMap[id] = ui.jobParams[id];
+
+      const { errors: triggerErrors } = await state.trigger(nodeIds, params, jobParamsMap);
       const allErrors = [...errors, ...triggerErrors];
       if (allErrors.length > 0) {
         void vscode.window.showWarningMessage(t("cmd.batchTriggerErrors", { count: allErrors.length }));
@@ -451,10 +463,15 @@ function registerCommands(
  *
  *   await vscode.commands.executeCommand(
  *     "jenkins-batch-trigger.batchTrigger",
- *     tplName?,   // param-template name; omit to use the currently active template
+ *     tplName?,   // param-template name; omit to use the page param editor's
+ *                 // current params (exactly what the webview button sends)
  *     jobPaths?   // array of Jenkins job paths, e.g. ["infra/k8s/release/rel20/testjob1"];
- *                 // omit to use the jobs currently checked on the page
+ *                 // omit to trigger the rows currently checked on the page
  *   );
+ *
+ * With both arguments omitted the command triggers exactly what clicking the
+ * webview "batch trigger" button would: the page's current params, the page's
+ * checked rows, and the page's per-job params.
  */
 export interface BatchTriggerResult {
   ok: boolean;

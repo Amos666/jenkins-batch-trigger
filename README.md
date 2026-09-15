@@ -219,15 +219,15 @@ errs.length ? errs.length + ' 条' : '';
 
 ## 扩展间调用：batchTrigger 命令
 
-「批量触发」能力已注册为 VSCode 命令 `jenkins-batch-trigger.batchTrigger`，其他插件可在自己的流程中调用（如发版流水线、自动化任务链）。行为与页面「批量触发」按钮完全一致：使用参数模板的参数走 `buildWithParameters`，启用 Pre/Post Actions 的 job 会执行完整的 Action 链路。
+「批量触发」能力已注册为 VSCode 命令 `jenkins-batch-trigger.batchTrigger`，其他插件可在自己的流程中调用（如发版流水线、自动化任务链）。**不传参数时行为与点击页面「批量触发」按钮完全一致**：使用页面参数编辑器的当前参数（携带参数时走 `buildWithParameters`），只触发表格中勾选的行，并应用每 Job 专属参数；启用 Pre/Post Actions 的 job 执行完整 Action 链路。页面的参数、勾选状态和每 Job 参数会实时同步持久化，即使 webview 面板已关闭，命令仍使用最后一次页面状态。
 
 ### 命令签名
 
 ```typescript
 vscode.commands.executeCommand(
   "jenkins-batch-trigger.batchTrigger",
-  tplName?: string,    // 可选①：参数模板名称；不传则使用当前页面激活的参数模板
-  jobPaths?: string[]  // 可选②：Jenkins job 完整路径数组；不传则使用页面当前勾选的 job
+  tplName?: string,    // 可选①：参数模板名称；不传则使用页面参数编辑器的当前参数（与按钮一致）
+  jobPaths?: string[]  // 可选②：Jenkins job 完整路径数组；不传则触发页面表格中勾选的行（与按钮一致）
 ): Promise<BatchTriggerResult>
 ```
 
@@ -235,8 +235,8 @@ vscode.commands.executeCommand(
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `tplName` | `string \| undefined` | 参数模板名称（在「参数」弹框中保存的模板）。传入的模板不存在时命令直接失败并在 `errors` 中返回错误；不传则回退到页面当前激活的模板（与手动点按钮一致），无激活模板时不带参数触发 |
-| `jobPaths` | `string[] \| undefined` | Jenkins job 完整路径，如 `infra/k8s/releaseproject1/release19/testjob1`，多个以数组传入。路径需已添加到 Pipeline 树中（按路径精确匹配，容忍首尾斜杠）；不传则使用页面当前勾选的 job |
+| `tplName` | `string \| undefined` | 参数模板名称（在「参数」弹框中保存的模板）。传入的模板不存在时命令直接失败并在 `errors` 中返回错误；不传则使用页面参数编辑器的**当前参数**（即点击「批量触发」按钮会发送的那份参数，含手动编辑但未存为模板的值）；页面从未打开过时才回退到激活模板 |
+| `jobPaths` | `string[] \| undefined` | Jenkins job 完整路径，如 `infra/k8s/releaseproject1/release19/testjob1`，多个以数组传入。路径需已添加到 Pipeline 树中（按路径精确匹配，容忍首尾斜杠）；不传则触发页面表格中**勾选的行**（与按钮一致，不是表格的全部行）；页面从未打开过时才回退为侧边栏当前选中的全部 job |
 
 **返回值** `BatchTriggerResult`：
 
@@ -244,10 +244,12 @@ vscode.commands.executeCommand(
 {
   ok: boolean;                      // 全部成功为 true
   nodeIds: string[];                // 实际触发的树节点 ID
-  params: Record<string, string>;   // 实际生效的触发参数（来自模板）
+  params: Record<string, string>;   // 实际生效的全局触发参数（模板或页面当前参数）
   errors: string[];                 // 每个失败的错误信息（模板/job 不存在、触发失败等）
 }
 ```
+
+> 无论参数来源是模板还是页面当前参数，页面中配置的**每 Job 专属参数**都会像按钮触发一样按 job 合并覆盖（同名键以专属参数优先）。
 
 ### 使用示例
 
@@ -260,23 +262,24 @@ const r = await vscode.commands.executeCommand(
 );
 if (!r.ok) console.error("触发失败:", r.errors);
 
-// 2. 只指定 job 地址，参数用页面当前激活的模板
+// 2. 只指定 job 地址，参数用页面参数编辑器的当前值（与按钮相同）
 await vscode.commands.executeCommand(
   "jenkins-batch-trigger.batchTrigger",
   undefined,                                                       // 不指定模板
   ["infra/k8s/releaseproject1/release19/testjob1", "infra/k8s/releaseproject1/release19/testjob2"]
 );
 
-// 3. 只指定模板，目标用页面当前勾选的 job
+// 3. 只指定模板，目标用页面表格中勾选的行（与按钮相同）
 await vscode.commands.executeCommand(
   "jenkins-batch-trigger.batchTrigger",
-  "test-smoke"  // 模板名；job 地址不传 → 触发页面上勾选的 job
+  "test-smoke"  // 模板名；job 地址不传 → 触发页面上勾选的行
 );
 
 // 4. 两个都不传：完全等价于点击页面的「批量触发」按钮
+//    （页面当前参数 + 页面勾选的行 + 每 Job 专属参数）
 await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
 
-// 5. 也可在 keybindings / 任务里引用（无参数，触发当前勾选）
+// 5. 也可在 keybindings / 任务里引用（无参数，触发页面勾选的行）
 //    命令 ID: jenkins-batch-trigger.batchTrigger（命令面板中名称为 "Jenkins: Batch Trigger"）
 ```
 
@@ -425,6 +428,7 @@ ${run.prev.id}	上次构建 ID
 | 数据 | 位置 | 说明 |
 |------|------|------|
 | 树结构 + 选择 | VSCode globalState | 跨 workspace 共享 |
+| 页面 UI 状态（参数 / 勾选行 / 每 Job 参数） | VSCode globalState | 供 batchTrigger 命令与按钮保持一致 |
 | 参数模板 + 模板分类 | VSCode globalState | 跨 workspace 共享 |
 | 日志提取规则 | VSCode globalState | 跨 workspace 共享 |
 | Action 配置 | `globalStorageUri/default-config.json` | 所有 Pipeline 共用 |

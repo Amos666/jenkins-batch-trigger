@@ -78,6 +78,21 @@ export interface ParamTemplate {
   category?: string;
 }
 
+/**
+ * Webview runtime state synced to the host so the `batchTrigger` command
+ * triggers exactly what the page's "batch trigger" button would trigger.
+ */
+export interface WebviewUiState {
+  /** Current params in the page param editor ([key, value] pairs). */
+  params: [string, string][];
+  /** Sidebar-selected node IDs at sync time (lets restore auto-check new nodes). */
+  selectedIds: string[];
+  /** Table row checkbox-checked node IDs (= button targets). */
+  checkedIds: string[];
+  /** Per-job params keyed by node ID (override the global params). */
+  jobParams: Record<string, Record<string, string>>;
+}
+
 /** Which occurrence of a regex match to keep during log extraction. */
 export type LogExtractStrategy = "first" | "last" | "all";
 
