@@ -327,7 +327,24 @@ function registerCommands(
 
     // ---- Batch trigger (exposed so other extensions can trigger jobs in their flows) ----
 
-    vscode.commands.registerCommand("jenkins-batch-trigger.batchTrigger", async (tplName?: string, jobPaths?: string[]): Promise<BatchTriggerResult> => {
+    vscode.commands.registerCommand("jenkins-batch-trigger.batchTrigger", async (tplName?: string | unknown, jobPaths?: string[] | unknown): Promise<BatchTriggerResult> => {
+      // Keybindings pass "args" as ONE argument (an array is NOT spread into
+      // positional params), while vscode.commands.executeCommand passes
+      // positional args. Normalize all supported forms:
+      //   keybinding  "args": ["tplName", ["job/path", ...]]  → single array arg
+      //   keybinding  "args": { "tplName": "...", "jobPaths": [...] } → object arg
+      //   keybinding  "args": "tplName"                        → plain string
+      //   executeCommand("...", "tplName", ["job/path", ...])  → positional
+      if (Array.isArray(tplName)) {
+        const arr = tplName as unknown[];
+        tplName = arr[0] as string | undefined;
+        jobPaths = arr[1] as string[] | undefined;
+      } else if (tplName && typeof tplName === "object") {
+        const o = tplName as { tplName?: string; jobPaths?: string[] };
+        tplName = o.tplName;
+        jobPaths = o.jobPaths;
+      }
+      if (typeof jobPaths === "string") jobPaths = [jobPaths];
       // Mirrors the webview "batch trigger" button exactly:
       //   params   = the page param editor's current params (persisted webview UI state)
       //              when tplName is omitted; the named template's params otherwise.
@@ -339,9 +356,12 @@ function registerCommands(
       // ---- Params ----
       const params: Record<string, string> = {};
       if (tplName !== undefined && tplName !== null && tplName !== "") {
-        const tpl = state.paramTemplates.find((tp) => tp.name === tplName);
+        // Template lookup is by exact name — categories are NOT part of the
+        // name. Tolerate leading/trailing whitespace on both sides.
+        const wanted = String(tplName).trim();
+        const tpl = state.paramTemplates.find((tp) => tp.name === wanted || tp.name.trim() === wanted);
         if (!tpl) {
-          const msg = t("cmd.batchTriggerTplNotFound", { name: tplName });
+          const msg = t("cmd.batchTriggerTplNotFound", { name: String(tplName) });
           void vscode.window.showWarningMessage(msg);
           return { ok: false, nodeIds: [], params: {}, errors: [msg] };
         }
@@ -357,14 +377,15 @@ function registerCommands(
 
       // ---- Target job nodes ----
       const jobNodes = Object.values(state.treeConfig.nodes).filter((n): n is TreeNode & { jobPath: string } => n.type === "job" && !!n.jobPath);
+      const jobPathList = Array.isArray(jobPaths) ? jobPaths.map((x) => String(x)) : undefined;
       let nodeIds: string[];
-      if (jobPaths !== undefined && jobPaths !== null && jobPaths.length > 0) {
+      if (jobPathList && jobPathList.length > 0) {
         const ids = new Set<string>();
-        for (const jp of jobPaths) {
-          const norm = String(jp).replace(/^\/+|\/+$/g, "");
+        for (const jp of jobPathList) {
+          const norm = jp.replace(/^\/+|\/+$/g, "");
           const node = jobNodes.find((n) => n.jobPath === norm);
           if (node) ids.add(node.id);
-          else errors.push(t("state.unknownJob", { id: String(jp) }));
+          else errors.push(t("state.unknownJob", { id: jp }));
         }
         nodeIds = [...ids];
       } else {
