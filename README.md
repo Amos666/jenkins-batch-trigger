@@ -285,6 +285,41 @@ await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
 
 > 注意：`jobPaths` 中的路径必须与 Pipeline 树中添加的 job 路径一致（即 Jenkins 的 fullName，如 `infra/k8s/releaseproject1/release19/testjob1`）。传入树中不存在的路径会记入 `errors`，不会静默忽略。
 
+### 在 keybindings.json 中绑定快捷键
+
+模板名与**分类无关**（分类只是 UI 分组），直接写模板的完整名称即可，首尾空格会被自动容忍。命令兼容以下三种 `args` 写法：
+
+```jsonc
+[
+  // 写法①：数组（推荐）—— args: [模板名, job路径数组]
+  {
+    "key": "ctrl+shift+alt+j",
+    "command": "jenkins-batch-trigger.batchTrigger",
+    "args": [
+      "111111",
+      [
+        "infra/k8s/releaseproject1/release20/testjob1",
+        "infra/k8s/releaseproject1/release20/testjob2"
+      ]
+    ]
+  },
+  // 写法②：对象 —— args: { "tplName": ..., "jobPaths": [...] }
+  {
+    "key": "ctrl+shift+alt+k",
+    "command": "jenkins-batch-trigger.batchTrigger",
+    "args": {
+      "tplName": "111111",
+      "jobPaths": ["infra/k8s/releaseproject1/release20/testjob1"]
+    }
+  },
+  // 写法③：不带 args —— 等价于点击页面「批量触发」按钮
+  {
+    "key": "ctrl+shift+alt+l",
+    "command": "jenkins-batch-trigger.batchTrigger"
+  }
+]
+```
+
 ## Pre/Post Action 系统
 
 ### 概念
