@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { getWebviewHtml } from "./webviewHtml";
 import { StateService, Snapshot } from "./state";
-import { ParamTemplate, LogExtractRule, LogExtractRuleKind, LogExtractStrategy } from "./types";
+import { ParamTemplate, LogExtractRule, LogExtractRuleKind, LogExtractStrategy, WebviewUiState } from "./types";
 import { getWebviewMessages } from "./i18n";
 
 /** Inbound message shapes from the webview. */
@@ -22,6 +22,7 @@ type InMsg =
   | { type: "extractJobLog"; id: number; data: { nodeId: string; jobPath: string; buildNumber: number; rules: { name: string; kind?: LogExtractRuleKind; pattern?: string; code?: string; strategy: LogExtractStrategy }[] } }
   | { type: "overwriteDefaultTpl"; id: number; data: { params: [string, string][] } }
   | { type: "saveActiveTpl"; data: { name: string } }
+  | { type: "saveUiState"; id: number; data: WebviewUiState }
   | { type: "togglePre"; id: number; data: { jobPath: string } }
   | { type: "togglePost"; id: number; data: { jobPath: string } }
   | { type: "setPreBatch"; id: number; data: { jobPaths: string[]; enabled: boolean } }
@@ -35,6 +36,7 @@ interface LoadResult extends Snapshot {
   jenkinsUrl: string;
   username: string;
   activeTpl?: string;
+  uiState?: WebviewUiState;
 }
 interface ActionResult extends Snapshot {
   errors: string[];
@@ -98,7 +100,7 @@ export class WebviewProvider {
     switch (m.type) {
       case "load": {
         const conn = await this.state.readJenkinsUrl();
-        const r: LoadResult = { ...this.state.snapshot(), jenkinsUrl: conn.url, username: conn.username, activeTpl: this.state.loadActiveTpl() };
+        const r: LoadResult = { ...this.state.snapshot(), jenkinsUrl: conn.url, username: conn.username, activeTpl: this.state.loadActiveTpl(), uiState: this.state.loadUiState() };
         this.reply(m.id, r);
         this.panel?.webview.postMessage({ type: "locale", messages: getWebviewMessages() });
         break;
@@ -180,6 +182,13 @@ export class WebviewProvider {
       }
       case "saveActiveTpl": {
         this.state.saveActiveTpl(m.data.name);
+        break;
+      }
+      case "saveUiState": {
+        // Persist the webview's current trigger params / checked rows / per-job
+        // params so the batchTrigger command mirrors the page button exactly.
+        this.state.saveUiState(m.data);
+        this.reply(m.id, { ok: true });
         break;
       }
       case "togglePre": {
