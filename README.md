@@ -226,32 +226,68 @@ errs.length ? errs.length + ' 条' : '';
 ```typescript
 vscode.commands.executeCommand(
   "jenkins-batch-trigger.batchTrigger",
-  tplName?: string,    // 可选①：参数模板名称；不传则使用页面参数编辑器的当前参数（与按钮一致）
-  jobPaths?: string[]  // 可选②：Jenkins job 完整路径数组；不传则触发页面表格中勾选的行（与按钮一致）
+  tplName?: string,             // 可选①：参数模板名称；不传则使用页面参数编辑器的当前参数（与按钮一致）
+  jobPaths?: BatchTriggerJobSpec[] // 可选②：目标 job 列表，元素可为纯路径字符串或 { path, params } 对象；
+                                   //   不传则触发页面表格中勾选的行（与按钮一致）
 ): Promise<BatchTriggerResult>
+```
+
+`jobPaths` 数组元素支持两种形态（可混用），对象形态与 webview「每 Job 专属参数」功能完全一致：
+
+```typescript
+type BatchTriggerJobSpec =
+  | string  // 形态1：纯 job 路径 —— 只用基础参数（模板 / 页面参数）
+  | {
+      path: string;                    // 形态2：job 完整路径（Jenkins fullName）
+      params?: Record<string, string>; // 专属参数：覆盖基础参数的同名键，其余保留；还可追加基础参数中没有的键
+    };
 ```
 
 **参数说明**：
 
 | 参数 | 类型 | 说明 |
 |------|------|------|
-| `tplName` | `string \| undefined` | 参数模板名称（在「参数」弹框中保存的模板）。传入的模板不存在时命令直接失败并在 `errors` 中返回错误；不传则使用页面参数编辑器的**当前参数**（即点击「批量触发」按钮会发送的那份参数，含手动编辑但未存为模板的值）；页面从未打开过时才回退到激活模板 |
-| `jobPaths` | `string[] \| undefined` | Jenkins job 完整路径，如 `infra/k8s/releaseproject1/release19/testjob1`，多个以数组传入。路径需已添加到 Pipeline 树中（按路径精确匹配，容忍首尾斜杠）；不传则触发页面表格中**勾选的行**（与按钮一致，不是表格的全部行）；页面从未打开过时才回退为侧边栏当前选中的全部 job |
+| `tplName` | `string \| undefined` | 参数模板名称（在「参数」弹框中保存的模板，**与分类无关**）。传入的模板不存在时命令直接失败并在 `errors` 中返回错误；不传则使用页面参数编辑器的**当前参数**（即点击「批量触发」按钮会发送的那份参数，含手动编辑但未存为模板的值）；页面从未打开过时才回退到激活模板 |
+| `jobPaths` | `BatchTriggerJobSpec[] \| undefined` | 目标 job 列表。纯字符串形态传 Jenkins job 完整路径（如 `infra/k8s/releaseproject1/release19/testjob1`）；对象形态可额外携带该 job 的专属参数。路径需已添加到 Pipeline 树中（按路径精确匹配，容忍首尾斜杠）；不传则触发页面表格中**勾选的行**（与按钮一致，不是表格的全部行）；页面从未打开过时才回退为侧边栏当前选中的全部 job |
+
+**参数合并优先级**（与 webview 按钮一致，逐级覆盖同名键）：
+
+```
+基础参数（模板 或 页面参数编辑器当前值）
+  < 页面已保存的每 Job 专属参数
+  < 命令传入的 { path, params } 专属参数
+```
+
+- 实际生效参数 = `{ ...基础参数, ...该job专属参数 }`（同名键以专属参数优先，其余保留）
+- 命令中**未指定**专属参数的 job：仍沿用页面已保存的每 Job 专属参数（与按钮行为一致）
+- 命令与页面同时存在某 job 的专属参数：**合并，命令优先**——同名键以命令为准，其余保留页面设置
+
+**边界规则**：
+
+| 情况 | 处理 |
+|------|------|
+| `params` 值为 number / boolean | 自动转字符串（`3` → `"3"`） |
+| `params` 值为嵌套对象 / 数组 | 该 job 计入 `errors` 并**跳过**，不会带错误参数静默触发 |
+| 元素为空对象 / 缺少 `path` | 计入 `errors` 并跳过 |
+| `path` 不在 Pipeline 树中 | 计入 `errors`（不静默忽略） |
+| 同一路径重复出现 | 按出现顺序合并，后者覆盖前者同名键；纯字符串条目不清空已收集的专属参数 |
+| `params: {}` 或省略 | 等价于纯字符串 |
 
 **返回值** `BatchTriggerResult`：
 
 ```typescript
 {
-  ok: boolean;                      // 全部成功为 true
-  nodeIds: string[];                // 实际触发的树节点 ID
-  params: Record<string, string>;   // 实际生效的全局触发参数（模板或页面当前参数）
-  errors: string[];                 // 每个失败的错误信息（模板/job 不存在、触发失败等）
+  ok: boolean;                                   // 全部成功为 true
+  nodeIds: string[];                             // 实际触发的树节点 ID
+  params: Record<string, string>;                // 实际生效的基础参数（模板或页面当前参数）
+  jobParams: Record<string, Record<string, string>>; // 按 job 路径键的实际生效专属参数（页面与命令合并后的结果）
+  errors: string[];                              // 每个失败的错误信息（模板/job 不存在、触发失败等）
 }
 ```
 
-> 无论参数来源是模板还是页面当前参数，页面中配置的**每 Job 专属参数**都会像按钮触发一样按 job 合并覆盖（同名键以专属参数优先）。
-
 ### 使用示例
+
+以下示例假设模板 `111111` 的参数为 `testparam1=pr-1, testparam2=testparam2, testparam3=testparam3, klkl=ll`。
 
 ```typescript
 // 1. 指定模板 + 指定 job 地址（最常用：外部流程明确驱动）
@@ -262,24 +298,44 @@ const r = await vscode.commands.executeCommand(
 );
 if (!r.ok) console.error("触发失败:", r.errors);
 
-// 2. 只指定 job 地址，参数用页面参数编辑器的当前值（与按钮相同）
-await vscode.commands.executeCommand(
+// 2. 为单个 job 设置专属参数，覆盖模板默认值（与页面「每 Job 专属参数」功能一致）
+//    testjob1 → testparam1=pr-1&testparam2=testparam2&testparam3=testparam3&klkl=ll
+//    testjob2 → testparam1=pr-2&testparam2=testparam2&testparam3=testparam3&klkl=ll&extraParam=abc
+const r2 = await vscode.commands.executeCommand(
   "jenkins-batch-trigger.batchTrigger",
-  undefined,                                                       // 不指定模板
-  ["infra/k8s/releaseproject1/release19/testjob1", "infra/k8s/releaseproject1/release19/testjob2"]
+  "111111",
+  [
+    // 形态1：纯字符串 —— 全用模板参数
+    "infra/k8s/releaseproject1/release20/testjob1",
+    // 形态2：对象 —— testparam1 覆盖模板的 pr-1，extraParam 为新增参数
+    {
+      path: "infra/k8s/releaseproject1/release20/testjob2",
+      params: { testparam1: "pr-2", extraParam: "abc" },
+    },
+  ]
 );
 
-// 3. 只指定模板，目标用页面表格中勾选的行（与按钮相同）
+// 3. 只指定 job 地址（含专属参数），参数用页面参数编辑器的当前值（与按钮相同）
+await vscode.commands.executeCommand(
+  "jenkins-batch-trigger.batchTrigger",
+  undefined,
+  [
+    "infra/k8s/releaseproject1/release19/testjob1",
+    { path: "infra/k8s/releaseproject1/release19/testjob2", params: { testparam1: "pr-2" } },
+  ]
+);
+
+// 4. 只指定模板，目标用页面表格中勾选的行（与按钮相同）
 await vscode.commands.executeCommand(
   "jenkins-batch-trigger.batchTrigger",
   "test-smoke"  // 模板名；job 地址不传 → 触发页面上勾选的行
 );
 
-// 4. 两个都不传：完全等价于点击页面的「批量触发」按钮
-//    （页面当前参数 + 页面勾选的行 + 每 Job 专属参数）
+// 5. 两个都不传：完全等价于点击页面的「批量触发」按钮
+//    （页面当前参数 + 页面勾选的行 + 页面已保存的每 Job 专属参数）
 await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
 
-// 5. 也可在 keybindings / 任务里引用（无参数，触发页面勾选的行）
+// 6. 也可在 keybindings / 任务里引用（见下节）
 //    命令 ID: jenkins-batch-trigger.batchTrigger（命令面板中名称为 "Jenkins: Batch Trigger"）
 ```
 
@@ -291,7 +347,7 @@ await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
 
 ```jsonc
 [
-  // 写法①：数组（推荐）—— args: [模板名, job路径数组]
+  // 写法①：数组（推荐）—— args: [模板名, job列表]，元素可混用字符串和 { path, params } 对象
   {
     "key": "ctrl+shift+alt+j",
     "command": "jenkins-batch-trigger.batchTrigger",
@@ -299,7 +355,10 @@ await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
       "111111",
       [
         "infra/k8s/releaseproject1/release20/testjob1",
-        "infra/k8s/releaseproject1/release20/testjob2"
+        {
+          "path": "infra/k8s/releaseproject1/release20/testjob2",
+          "params": { "testparam1": "pr-2", "extraParam": "abc" }
+        }
       ]
     ]
   },
@@ -309,7 +368,10 @@ await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
     "command": "jenkins-batch-trigger.batchTrigger",
     "args": {
       "tplName": "111111",
-      "jobPaths": ["infra/k8s/releaseproject1/release20/testjob1"]
+      "jobPaths": [
+        "infra/k8s/releaseproject1/release20/testjob1",
+        { "path": "infra/k8s/releaseproject1/release20/testjob2", "params": { "testparam1": "pr-2" } }
+      ]
     }
   },
   // 写法③：不带 args —— 等价于点击页面「批量触发」按钮
@@ -319,6 +381,8 @@ await vscode.commands.executeCommand("jenkins-batch-trigger.batchTrigger");
   }
 ]
 ```
+
+> 如果使用的扩展版本较旧（不支持数组/对象 `args` 写法），可用 VSCode 内置的 `runCommands` 包装，它会把 `args` 数组展开为位置参数：`{ "key": "...", "command": "runCommands", "args": { "commands": [{ "command": "jenkins-batch-trigger.batchTrigger", "args": ["111111", ["...job路径..."]] }] } }`。
 
 ## Pre/Post Action 系统
 

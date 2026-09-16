@@ -4,9 +4,69 @@ import { SidebarTreeProvider } from "./treeProvider";
 import { WebviewProvider } from "./webviewProvider";
 import { StateService } from "./state";
 import { JenkinsSettings } from "./jenkinsClient";
-import { TreeNode } from "./types";
+import { TreeNode, BatchTriggerJobSpec } from "./types";
 import { initI18n, t, setLocale, onLocaleChange, getWebviewMessages } from "./i18n";
 import { Locale } from "./i18n/types";
+
+/** Normalized form of one `jobPaths` element of the batchTrigger command. */
+interface JobSpecEntry {
+  /** Job path as given (leading/trailing whitespace trimmed). */
+  path: string;
+  /** Per-job params (already stringified); undefined = no per-job params. */
+  params?: Record<string, string>;
+}
+
+/**
+ * Parses the `jobPaths` argument of the batchTrigger command.
+ *
+ * Each element is a BatchTriggerJobSpec: either a plain job path string, or
+ * an object `{ path, params }` whose params override the base params for that
+ * single job (the same feature as the webview per-job params). String, number
+ * and boolean param values are accepted (numbers/booleans are stringified);
+ * any other value invalidates the whole job entry — it is reported in
+ * `errors` and skipped so the job is never triggered with wrong params.
+ */
+function parseJobSpecs(raw: unknown, errors: string[]): JobSpecEntry[] {
+  const list: unknown[] = typeof raw === "string" ? [raw] : Array.isArray(raw) ? raw : [];
+  const entries: JobSpecEntry[] = [];
+  for (const item of list) {
+    if (typeof item === "string") {
+      entries.push({ path: item });
+      continue;
+    }
+    if (item && typeof item === "object" && !Array.isArray(item)) {
+      const o = item as { path?: unknown; params?: unknown };
+      const path = typeof o.path === "string" ? o.path.trim() : "";
+      if (!path) {
+        errors.push(t("cmd.batchTriggerInvalidJob", { item: JSON.stringify(item) }));
+        continue;
+      }
+      if (o.params === undefined || o.params === null) {
+        entries.push({ path });
+        continue;
+      }
+      if (typeof o.params !== "object" || Array.isArray(o.params)) {
+        errors.push(t("cmd.batchTriggerInvalidJobParams", { path }));
+        continue;
+      }
+      const params: Record<string, string> = {};
+      let valid = true;
+      for (const [k, v] of Object.entries(o.params as Record<string, unknown>)) {
+        if (typeof v === "string") params[k] = v;
+        else if (typeof v === "number" || typeof v === "boolean") params[k] = String(v);
+        else {
+          errors.push(t("cmd.batchTriggerInvalidParamValue", { path, key: k }));
+          valid = false;
+          break;
+        }
+      }
+      if (valid) entries.push({ path, params });
+      continue;
+    }
+    errors.push(t("cmd.batchTriggerInvalidJob", { item: String(item) }));
+  }
+  return entries;
+}
 
 export function activate(context: vscode.ExtensionContext): void {
   initI18n();
@@ -327,29 +387,31 @@ function registerCommands(
 
     // ---- Batch trigger (exposed so other extensions can trigger jobs in their flows) ----
 
-    vscode.commands.registerCommand("jenkins-batch-trigger.batchTrigger", async (tplName?: string | unknown, jobPaths?: string[] | unknown): Promise<BatchTriggerResult> => {
+    vscode.commands.registerCommand("jenkins-batch-trigger.batchTrigger", async (tplName?: string | unknown, jobPaths?: BatchTriggerJobSpec[] | unknown): Promise<BatchTriggerResult> => {
       // Keybindings pass "args" as ONE argument (an array is NOT spread into
       // positional params), while vscode.commands.executeCommand passes
       // positional args. Normalize all supported forms:
-      //   keybinding  "args": ["tplName", ["job/path", ...]]  → single array arg
-      //   keybinding  "args": { "tplName": "...", "jobPaths": [...] } → object arg
-      //   keybinding  "args": "tplName"                        → plain string
-      //   executeCommand("...", "tplName", ["job/path", ...])  → positional
+      //   keybinding  "args": ["tplName", [...jobs]]            → single array arg
+      //   keybinding  "args": { "tplName": ..., "jobPaths": [...] } → object arg
+      //   keybinding  "args": "tplName"                          → plain string
+      //   executeCommand("...", "tplName", [...jobs])            → positional
       if (Array.isArray(tplName)) {
         const arr = tplName as unknown[];
         tplName = arr[0] as string | undefined;
-        jobPaths = arr[1] as string[] | undefined;
+        jobPaths = arr[1] as BatchTriggerJobSpec[] | undefined;
       } else if (tplName && typeof tplName === "object") {
-        const o = tplName as { tplName?: string; jobPaths?: string[] };
+        const o = tplName as { tplName?: string; jobPaths?: BatchTriggerJobSpec[] };
         tplName = o.tplName;
         jobPaths = o.jobPaths;
       }
-      if (typeof jobPaths === "string") jobPaths = [jobPaths];
       // Mirrors the webview "batch trigger" button exactly:
-      //   params   = the page param editor's current params (persisted webview UI state)
-      //              when tplName is omitted; the named template's params otherwise.
-      //   targets  = the page table's checked rows when jobPaths is omitted.
-      //   jobParams = the page's per-job params (override the global params).
+      //   params    = the page param editor's current params (persisted webview
+      //               UI state) when tplName is omitted; the named template's
+      //               params otherwise.
+      //   targets   = the page table's checked rows when jobPaths is omitted.
+      //   jobParams = the page's per-job params, merged key-by-key with any
+      //               per-job params passed via { path, params } job entries
+      //               (command entries win on same-named keys).
       const ui = state.loadUiState();
       const errors: string[] = [];
 
@@ -363,7 +425,7 @@ function registerCommands(
         if (!tpl) {
           const msg = t("cmd.batchTriggerTplNotFound", { name: String(tplName) });
           void vscode.window.showWarningMessage(msg);
-          return { ok: false, nodeIds: [], params: {}, errors: [msg] };
+          return { ok: false, nodeIds: [], params: {}, jobParams: {}, errors: [msg] };
         }
         for (const [k, v] of tpl.params) if (k !== "") params[k] = v;
       } else if (ui && ui.params) {
@@ -375,17 +437,37 @@ function registerCommands(
         if (tpl) for (const [k, v] of tpl.params) if (k !== "") params[k] = v;
       }
 
-      // ---- Target job nodes ----
+      // ---- Target job nodes + command per-job params ----
+      // jobPaths elements may be plain paths or { path, params } objects
+      // (per-job overrides — the same feature as the webview per-job params).
+      // Duplicate paths merge in order (later entries override same-named
+      // keys; plain-string entries keep params already collected for that
+      // path). Invalid elements are reported in `errors` and skipped.
       const jobNodes = Object.values(state.treeConfig.nodes).filter((n): n is TreeNode & { jobPath: string } => n.type === "job" && !!n.jobPath);
-      const jobPathList = Array.isArray(jobPaths) ? jobPaths.map((x) => String(x)) : undefined;
+      const cmdParamsByPath: Record<string, Record<string, string>> = {};
+      const orderedPaths: string[] = [];
+      for (const entry of parseJobSpecs(jobPaths, errors)) {
+        const norm = entry.path.replace(/^\/+|\/+$/g, "");
+        if (!cmdParamsByPath[norm]) {
+          orderedPaths.push(norm);
+          cmdParamsByPath[norm] = {};
+        }
+        if (entry.params) Object.assign(cmdParamsByPath[norm], entry.params);
+      }
+      // Per-job params from the command, keyed by node ID (only paths that
+      // actually carry params).
+      const cmdJobParams: Record<string, Record<string, string>> = {};
       let nodeIds: string[];
-      if (jobPathList && jobPathList.length > 0) {
+      if (orderedPaths.length > 0) {
         const ids = new Set<string>();
-        for (const jp of jobPathList) {
-          const norm = jp.replace(/^\/+|\/+$/g, "");
+        for (const norm of orderedPaths) {
           const node = jobNodes.find((n) => n.jobPath === norm);
-          if (node) ids.add(node.id);
-          else errors.push(t("state.unknownJob", { id: jp }));
+          if (node) {
+            ids.add(node.id);
+            if (Object.keys(cmdParamsByPath[norm]).length > 0) cmdJobParams[node.id] = cmdParamsByPath[norm];
+          } else {
+            errors.push(t("state.unknownJob", { id: norm }));
+          }
         }
         nodeIds = [...ids];
       } else {
@@ -397,12 +479,21 @@ function registerCommands(
       if (nodeIds.length === 0) {
         const msgs = errors.length > 0 ? errors : [t("cmd.batchTriggerNone")];
         if (msgs.length === 1) void vscode.window.showWarningMessage(msgs[0]);
-        return { ok: false, nodeIds: [], params, errors: msgs };
+        return { ok: false, nodeIds: [], params, jobParams: {}, errors: msgs };
       }
 
-      // ---- Per-job params (page per-job overrides, same merge as the button) ----
+      // ---- Per-job params (merge: page per-job first, command entries win) ----
       const jobParamsMap: Record<string, Record<string, string>> = {};
-      if (ui) for (const id of nodeIds) if (ui.jobParams[id]) jobParamsMap[id] = ui.jobParams[id];
+      const jobParamsByPath: Record<string, Record<string, string>> = {};
+      for (const id of nodeIds) {
+        const page = ui ? ui.jobParams[id] : undefined;
+        const cmd = cmdJobParams[id];
+        if (!page && !cmd) continue;
+        const merged = { ...(page ?? {}), ...(cmd ?? {}) };
+        jobParamsMap[id] = merged;
+        const node = state.treeConfig.nodes[id];
+        if (node && node.type === "job" && node.jobPath) jobParamsByPath[node.jobPath] = merged;
+      }
 
       const { errors: triggerErrors } = await state.trigger(nodeIds, params, jobParamsMap);
       const allErrors = [...errors, ...triggerErrors];
@@ -411,7 +502,7 @@ function registerCommands(
       } else {
         void vscode.window.showInformationMessage(t("cmd.batchTriggered", { count: nodeIds.length }));
       }
-      return { ok: allErrors.length === 0, nodeIds, params, errors: allErrors };
+      return { ok: allErrors.length === 0, nodeIds, params, jobParams: jobParamsByPath, errors: allErrors };
     }),
 
     // ---- Settings ----
@@ -486,8 +577,12 @@ function registerCommands(
  *     "jenkins-batch-trigger.batchTrigger",
  *     tplName?,   // param-template name; omit to use the page param editor's
  *                 // current params (exactly what the webview button sends)
- *     jobPaths?   // array of Jenkins job paths, e.g. ["infra/k8s/release/rel20/testjob1"];
- *                 // omit to trigger the rows currently checked on the page
+ *     jobPaths?   // array of BatchTriggerJobSpec: either a Jenkins job path
+ *                 // string ("infra/k8s/release/rel20/testjob1"), or an object
+ *                 // { path, params } whose params override the base params
+ *                 // for that job only (same feature as the webview per-job
+ *                 // params). Omit to trigger the rows currently checked on
+ *                 // the page.
  *   );
  *
  * With both arguments omitted the command triggers exactly what clicking the
@@ -498,11 +593,21 @@ export interface BatchTriggerResult {
   ok: boolean;
   /** Node IDs that were submitted to the trigger flow. */
   nodeIds: string[];
-  /** Params resolved from the template (or the active template). */
+  /** Base params resolved from the template (or the page editor). */
   params: Record<string, string>;
+  /**
+   * Effective per-job params keyed by job path: the page's saved per-job
+   * params merged with the per-job params passed via the command (command
+   * wins on same-named keys). Jobs without any per-job params are absent.
+   */
+  jobParams: Record<string, Record<string, string>>;
   /** Per-job error messages (unknown template/jobs, pre-action / trigger failures). */
   errors: string[];
 }
+
+// Re-exported so other extensions can reference the jobPaths element type:
+//   import type { BatchTriggerJobSpec } from "jenkins-batch-trigger";
+export type { BatchTriggerJobSpec } from "./types";
 
 export function deactivate(): void {
   /* nothing to clean up */
