@@ -21,7 +21,9 @@ VSCode 扩展：批量触发 Jenkins Pipeline，实时监控构建状态，支�
 ### 从 VSIX 安装
 
 ```bash
-code --install-extension jenkins-batch-trigger-1.0.0.vsix
+# VSIX 文件名格式：jenkins-batch-trigger-v<版本号>.vsix（如 v1.0.8）
+# 每次 push 到 main/master 会自动构建并发布到 GitHub Releases，直接下载最新版即可
+code --install-extension jenkins-batch-trigger-v1.0.8.vsix
 ```
 
 ### 从源码构建
