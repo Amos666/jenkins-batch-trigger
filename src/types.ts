@@ -93,6 +93,21 @@ export interface WebviewUiState {
   jobParams: Record<string, Record<string, string>>;
 }
 
+/**
+ * One element of the `batchTrigger` command's `jobPaths` argument.
+ * Mirrors the webview's per-job params feature: `params` override the
+ * base params (template / page editor) for that single job; same-named
+ * keys are overridden, other keys are kept.
+ */
+export type BatchTriggerJobSpec =
+  | string
+  | {
+      /** Full job path (Jenkins fullName), e.g. "infra/k8s/releaseproject1/release20/testjob1". */
+      path: string;
+      /** Per-job params that override the base params for this job only. */
+      params?: Record<string, string>;
+    };
+
 /** Which occurrence of a regex match to keep during log extraction. */
 export type LogExtractStrategy = "first" | "last" | "all";
 
