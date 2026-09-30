@@ -76,28 +76,34 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .tpl-saved .chip.dragging{opacity:.4;cursor:grabbing;}
 .tpl-saved .chip.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
 .tpl-saved .chip.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
-/* Template category groups (shown once the user creates a category). */
-.tpl-saved .tpl-cat{flex:1 1 100%;border:1px solid var(--border,#333);border-radius:6px;
-  background:rgba(255,255,255,0.02);overflow:hidden;}
-.tpl-saved .tpl-cat-head{display:flex;align-items:center;gap:7px;padding:4px 10px;
-  background:var(--bg-alt,#1e1e1e);border-bottom:1px solid var(--border,#333);
-  font-size:11px;user-select:none;}
-.tpl-saved .tpl-cat-head .cat-name{font-weight:600;color:var(--text,#ddd);}
-.tpl-saved .tpl-cat-head .cat-count{color:var(--text-dim,#888);background:rgba(255,255,255,0.06);
+/* Template category tabs: categories render as horizontal tabs (uncategorized
+   always first); only the active tab's chips are shown, so the param editor
+   below keeps its full height. */
+#paramTplList{display:block;}
+.tpl-tabs{display:flex;gap:2px;flex-wrap:nowrap;overflow-x:auto;align-items:flex-end;
+  margin:6px 0 0;padding:0 2px;border-bottom:1px solid var(--border,#333);}
+.tpl-tab{display:inline-flex;align-items:center;gap:6px;padding:4px 12px 5px;font-size:11px;
+  color:var(--text-dim,#888);cursor:pointer;user-select:none;white-space:nowrap;flex:0 0 auto;
+  border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;position:relative;top:1px;}
+.tpl-tab:hover{color:var(--text,#ddd);background:rgba(255,255,255,0.04);}
+.tpl-tab.on{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.10);
+  border-color:var(--border,#333);border-bottom:1px solid #252526;}
+.tpl-tab .cat-name{font-weight:600;}
+.tpl-tab .cat-count{color:var(--text-dim,#888);background:rgba(255,255,255,0.06);
   border-radius:8px;padding:0 7px;font-size:10px;line-height:15px;}
-.tpl-saved .tpl-cat-head .cat-del{margin-left:auto;color:var(--red,#f48771);cursor:pointer;
-  font-size:10px;padding:0 2px;opacity:.75;}
-.tpl-saved .tpl-cat-head .cat-del:hover{opacity:1;}
-.tpl-saved .tpl-cat-body{display:flex;gap:6px;flex-wrap:wrap;align-items:center;
-  padding:7px 10px;min-height:32px;}
-.tpl-saved .tpl-cat.drop-hover{border-color:var(--accent,#4fc3f7);}
-.tpl-saved .tpl-cat.drop-hover .tpl-cat-head{background:rgba(79,195,247,0.12);}
-/* Drag the category header to reorder categories vertically. */
-.tpl-saved .tpl-cat-head.cat-draggable{cursor:grab;}
-.tpl-saved .tpl-cat-head.cat-draggable:active{cursor:grabbing;}
-.tpl-saved .tpl-cat.cat-dragging{opacity:.5;}
-.tpl-saved .tpl-cat.cat-drop-before{box-shadow:0 -2px 0 0 var(--accent,#4fc3f7);}
-.tpl-saved .tpl-cat.cat-drop-after{box-shadow:0 2px 0 0 var(--accent,#4fc3f7);}
+.tpl-tab .cat-del{color:var(--red,#f48771);cursor:pointer;font-size:10px;padding:0 2px;opacity:.75;}
+.tpl-tab .cat-del:hover{opacity:1;}
+/* Drag a tab horizontally to reorder categories; drop a chip onto a tab to
+   move it to that category (other categories are hidden behind their tabs). */
+.tpl-tab.cat-draggable{cursor:grab;}
+.tpl-tab.cat-draggable:active{cursor:grabbing;}
+.tpl-tab.dragging{opacity:.5;}
+.tpl-tab.drop-hover{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.12);}
+.tpl-tab.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
+.tpl-tab.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
+.tpl-tabpanel{display:flex;gap:6px;flex-wrap:wrap;align-items:center;
+  padding:8px 2px;min-height:36px;margin:0 0 10px;}
+.tpl-tabpanel .hint{margin:0;}
 /* Log extract: rule chips reuse .tpl-saved/.chip; small edit/delete marks. */
 #leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;cursor:pointer;font-size:10px;}
 #leRuleList .chip .del{color:var(--red,#f48771);}
