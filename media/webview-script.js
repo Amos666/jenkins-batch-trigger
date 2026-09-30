@@ -492,9 +492,13 @@ function renderKv() {
 let dragTplId = null;
 // Name of the category currently being dragged for reordering (null = none).
 let dragCatName = null;
+// Active template-category tab ("" = uncategorized). Pure UI state — the
+// persisted data (paramTemplates[].category / paramTplCategories) and all
+// RPC payloads stay exactly as before.
+let activeTplTab = "";
 function clearDropMarkers(box) {
   box.querySelectorAll(".chip").forEach((x) => x.classList.remove("drop-before", "drop-after"));
-  box.querySelectorAll(".tpl-cat").forEach((x) => x.classList.remove("drop-hover", "cat-drop-before", "cat-drop-after"));
+  box.querySelectorAll(".tpl-tab").forEach((x) => x.classList.remove("drop-hover", "drop-before", "drop-after"));
 }
 // Apply a param-template RPC result (templates + categories) and re-render.
 function applyParamResult(r) {
@@ -580,78 +584,80 @@ function buildTplChip(tpl, box) {
   };
   return c;
 }
-// Build a category group ("" = uncategorized). The whole group is a drop
-// target: dropping a chip here moves it to the end of that category.
-function buildTplCatGroup(cat, list, box) {
-  const sec = document.createElement("div");
-  sec.className = "tpl-cat" + (cat ? "" : " uncat");
-  const head = document.createElement("div");
-  head.className = "tpl-cat-head";
-  head.innerHTML = '<span class="cat-name">' + escapeHtml(cat || t("webview.uncategorized")) + '</span>' +
+// Build one category tab ("" = uncategorized; always first, not deletable,
+// not reorderable). Interactions:
+// - click: switch the visible tab
+// - drop a chip on a tab: move that chip to the tab's category (the other
+//   categories are hidden behind their tabs, so tabs are the cross-category
+//   drop target — same setTplCategory/reorderParamTpl RPCs as before)
+// - drag a tab onto another tab: reorder categories horizontally
+//   (same reorderTplCategories RPC as before, just horizontal instead of
+//   vertical)
+function buildTplTab(cat, list, box) {
+  const tab = document.createElement("div");
+  tab.className = "tpl-tab" + (cat === activeTplTab ? " on" : "");
+  tab.innerHTML = '<span class="cat-name">' + escapeHtml(cat || t("webview.uncategorized")) + '</span>' +
     '<span class="cat-count">' + list.length + '</span>' +
     (cat ? '<span class="cat-del" title="' + escapeHtml(t("webview.catDeleteTitle")) + '">✕</span>' : '');
+  tab.onclick = (e) => {
+    if (e.target.classList.contains("cat-del")) return;
+    if (activeTplTab !== cat) { activeTplTab = cat; renderParamTpl(); }
+  };
   if (cat) {
-    head.querySelector(".cat-del").onclick = (e) => {
+    tab.querySelector(".cat-del").onclick = (e) => {
       e.stopPropagation();
       rpc("deleteTplCategory", { name: cat }).then((r) => {
+        if (activeTplTab === cat) activeTplTab = ""; // fall back to uncategorized
         applyParamResult(r);
         toast(t("webview.catDeleted", {name: cat}));
       });
     };
-    // Drag the category header to reorder categories vertically.
-    head.draggable = true;
-    head.classList.add("cat-draggable");
-    head.title = t("webview.catDragTitle");
-    head.addEventListener("dragstart", (e) => {
+    // Drag the tab to reorder categories horizontally.
+    tab.draggable = true;
+    tab.classList.add("cat-draggable");
+    tab.title = t("webview.catDragTitle");
+    tab.addEventListener("dragstart", (e) => {
       dragCatName = cat;
       e.dataTransfer.effectAllowed = "move";
       try { e.dataTransfer.setData("text/plain", "cat:" + cat); } catch (_) {}
-      sec.classList.add("cat-dragging");
+      tab.classList.add("dragging");
     });
-    head.addEventListener("dragend", () => {
+    tab.addEventListener("dragend", () => {
       dragCatName = null;
       clearDropMarkers(box);
-      sec.classList.remove("cat-dragging");
+      tab.classList.remove("dragging");
     });
   }
-  const body = document.createElement("div");
-  body.className = "tpl-cat-body";
-  if (list.length === 0) {
-    body.innerHTML = '<span class="hint" style="margin:0">' + t("webview.catEmpty") + '</span>';
-  } else {
-    list.forEach((tpl) => body.appendChild(buildTplChip(tpl, box)));
-  }
-  sec.appendChild(head);
-  sec.appendChild(body);
-  sec.addEventListener("dragover", (e) => {
-    // Category reorder: show a before/after line on the hovered group.
+  tab.addEventListener("dragover", (e) => {
+    // Category reorder: show a left/right marker on the hovered tab.
     if (dragCatName !== null) {
       if (!cat || dragCatName === cat) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       clearDropMarkers(box);
-      const rect = sec.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
-      sec.classList.add(before ? "cat-drop-before" : "cat-drop-after");
+      const rect = tab.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
+      tab.classList.add(before ? "drop-before" : "drop-after");
       return;
     }
+    // Chip drag: highlight the tab as a move-to-category target.
     if (dragTplId === null) return;
     e.preventDefault();
     e.dataTransfer.dropEffect = "move";
     clearDropMarkers(box);
-    sec.classList.add("drop-hover");
+    tab.classList.add("drop-hover");
   });
-  sec.addEventListener("dragleave", (e) => {
-    if (!sec.contains(e.relatedTarget)) sec.classList.remove("drop-hover", "cat-drop-before", "cat-drop-after");
+  tab.addEventListener("dragleave", (e) => {
+    if (!tab.contains(e.relatedTarget)) tab.classList.remove("drop-hover", "drop-before", "drop-after");
   });
-  sec.addEventListener("drop", (e) => {
-    // Category reorder: insert the dragged category before/after this one.
+  tab.addEventListener("drop", (e) => {
+    // Category reorder: insert the dragged category before/after this tab.
     if (dragCatName !== null) {
       e.preventDefault();
       clearDropMarkers(box);
       if (!cat || dragCatName === cat) return;
-      const rect = sec.getBoundingClientRect();
-      const before = e.clientY < rect.top + rect.height / 2;
+      const rect = tab.getBoundingClientRect();
+      const before = e.clientX < rect.left + rect.width / 2;
       const cats = STATE.paramTplCategories;
       const from = cats.indexOf(dragCatName);
       if (from < 0 || !cats.includes(cat)) return;
@@ -663,6 +669,7 @@ function buildTplCatGroup(cat, list, box) {
       rpc("reorderTplCategories", { names: cats.slice() }).then(applyParamResult);
       return;
     }
+    // Chip drop: move the chip to this tab's category, then follow it.
     e.preventDefault();
     clearDropMarkers(box);
     if (dragTplId === null) return;
@@ -673,10 +680,11 @@ function buildTplCatGroup(cat, list, box) {
     if (cat) moved.category = cat; else delete moved.category;
     arr.push(moved);
     dragTplId = null;
+    activeTplTab = cat;
     renderParamTpl();
     persistTplChange(moved);
   });
-  return sec;
+  return tab;
 }
 function renderParamTpl() {
   const box = document.getElementById("paramTplList");
@@ -689,11 +697,47 @@ function renderParamTpl() {
     STATE.paramTemplates.forEach((tpl) => box.appendChild(buildTplChip(tpl, box)));
     return;
   }
-  // Uncategorized first, then categories in saved order. Templates whose
-  // category no longer exists fall back to uncategorized.
+  // Tabs: uncategorized first, then categories in saved order. Templates whose
+  // category no longer exists fall back to the uncategorized tab.
+  if (activeTplTab && !cats.includes(activeTplTab)) activeTplTab = "";
   const groups = [["", STATE.paramTemplates.filter((x) => !x.category || !cats.includes(x.category))]];
   cats.forEach((cat) => groups.push([cat, STATE.paramTemplates.filter((x) => x.category === cat)]));
-  groups.forEach(([cat, list]) => box.appendChild(buildTplCatGroup(cat, list, box)));
+  const bar = document.createElement("div");
+  bar.className = "tpl-tabs";
+  groups.forEach(([cat, list]) => bar.appendChild(buildTplTab(cat, list, box)));
+  box.appendChild(bar);
+  // Only the ACTIVE tab's chips are rendered (a single chip row at most), so
+  // the param editor below keeps its full height.
+  const active = groups.find(([cat]) => cat === activeTplTab) || groups[0];
+  const panel = document.createElement("div");
+  panel.className = "tpl-tabpanel";
+  if (active[1].length === 0) {
+    panel.innerHTML = '<span class="hint" style="margin:0">' + t("webview.catEmpty") + '</span>';
+  } else {
+    active[1].forEach((tpl) => panel.appendChild(buildTplChip(tpl, box)));
+  }
+  // Dropping a chip on empty panel space moves it to the end of this
+  // category (same as the old category-group body drop).
+  panel.addEventListener("dragover", (e) => {
+    if (dragTplId === null || dragCatName !== null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+  });
+  panel.addEventListener("drop", (e) => {
+    if (dragTplId === null || dragCatName !== null) return;
+    e.preventDefault();
+    clearDropMarkers(box);
+    const arr = STATE.paramTemplates;
+    const from = arr.findIndex((x) => x.id === dragTplId);
+    if (from < 0) return;
+    const [moved] = arr.splice(from, 1);
+    if (active[0]) moved.category = active[0]; else delete moved.category;
+    arr.push(moved);
+    dragTplId = null;
+    renderParamTpl();
+    persistTplChange(moved);
+  });
+  box.appendChild(panel);
 }
 
 /* ============ 工具栏事件 ============ */
@@ -916,6 +960,10 @@ document.getElementById("btnParamTplCancel").onclick = () => document.getElement
 document.getElementById("btnParamTplSave").onclick = () => {
   const name = document.getElementById("paramTplName").value.trim();
   if (!name) { toast(t("webview.tplNameRequired")); return; }
+  // New templates always land in the uncategorized tab — switch to it so the
+  // fresh chip is visible (updating an existing template keeps its tab).
+  const isNew = !STATE.paramTemplates.some((x) => x.name === name);
+  if (isNew) activeTplTab = "";
   rpc("saveParamTpl", { name, params: params.map((p) => p.slice()) }).then((r) => {
     applyParamResult(r);
     document.getElementById("paramTplOverlay").classList.remove("show");
@@ -937,6 +985,7 @@ function submitNewTplCat() {
   if (!name) { toast(t("webview.catNameEmpty")); return; }
   if ((STATE.paramTplCategories || []).includes(name)) { toast(t("webview.catDuplicate", {name})); return; }
   rpc("addTplCategory", { name }).then((r) => {
+    activeTplTab = name; // jump to the freshly created tab
     applyParamResult(r);
     document.getElementById("tplCatOverlay").classList.remove("show");
     toast(t("webview.catCreated", {name}));
