@@ -78,32 +78,63 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .tpl-saved .chip.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
 /* Template category tabs: categories render as horizontal tabs (uncategorized
    always first); only the active tab's chips are shown, so the param editor
-   below keeps its full height. */
+   below keeps its full height. Tabs sit on a recessed strip with an accent
+   underline; templates render as raised cards — so categories and templates
+   are visually distinct at a glance. */
 #paramTplList{display:block;}
-.tpl-tabs{display:flex;gap:2px;flex-wrap:nowrap;overflow-x:auto;align-items:flex-end;
-  margin:6px 0 0;padding:0 2px;border-bottom:1px solid var(--border,#333);}
-.tpl-tab{display:inline-flex;align-items:center;gap:6px;padding:4px 12px 5px;font-size:11px;
+.tpl-tabs{display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;align-items:flex-end;
+  margin:8px 0 0;padding:4px 6px 0;border-radius:8px 8px 0 0;
+  background:rgba(0,0,0,0.22);border-bottom:2px solid var(--border,#333);}
+.tpl-tab{display:inline-flex;align-items:center;gap:7px;padding:5px 14px;font-size:11px;
   color:var(--text-dim,#888);cursor:pointer;user-select:none;white-space:nowrap;flex:0 0 auto;
-  border:1px solid transparent;border-bottom:none;border-radius:6px 6px 0 0;position:relative;top:1px;}
-.tpl-tab:hover{color:var(--text,#ddd);background:rgba(255,255,255,0.04);}
-.tpl-tab.on{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.10);
-  border-color:var(--border,#333);border-bottom:1px solid #252526;}
-.tpl-tab .cat-name{font-weight:600;}
-.tpl-tab .cat-count{color:var(--text-dim,#888);background:rgba(255,255,255,0.06);
-  border-radius:8px;padding:0 7px;font-size:10px;line-height:15px;}
-.tpl-tab .cat-del{color:var(--red,#f48771);cursor:pointer;font-size:10px;padding:0 2px;opacity:.75;}
+  border:1px solid transparent;border-bottom:none;border-radius:7px 7px 0 0;position:relative;top:1px;
+  background:rgba(255,255,255,0.03);}
+.tpl-tab:hover{color:var(--text,#ddd);background:rgba(255,255,255,0.08);}
+.tpl-tab.on{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.12);font-weight:600;}
+.tpl-tab.on::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-2px;height:2px;
+  background:var(--accent,#4fc3f7);}
+.tpl-tab .cat-count{color:var(--text-dim,#888);background:rgba(255,255,255,0.08);
+  border-radius:9px;padding:0 7px;font-size:10px;line-height:16px;}
+.tpl-tab.on .cat-count{color:#0b0b0b;background:var(--accent,#4fc3f7);}
+.tpl-tab .cat-del{color:var(--red,#f48771);cursor:pointer;font-size:10px;padding:0 2px;opacity:.7;}
 .tpl-tab .cat-del:hover{opacity:1;}
 /* Drag a tab horizontally to reorder categories; drop a chip onto a tab to
    move it to that category (other categories are hidden behind their tabs). */
 .tpl-tab.cat-draggable{cursor:grab;}
 .tpl-tab.cat-draggable:active{cursor:grabbing;}
 .tpl-tab.dragging{opacity:.5;}
-.tpl-tab.drop-hover{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.12);}
+.tpl-tab.drop-hover{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.18);
+  box-shadow:inset 0 0 0 1px var(--accent,#4fc3f7);}
 .tpl-tab.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
 .tpl-tab.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
-.tpl-tabpanel{display:flex;gap:6px;flex-wrap:wrap;align-items:center;
-  padding:8px 2px;min-height:36px;margin:0 0 10px;}
+.tpl-tabpanel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+  padding:10px 2px;min-height:42px;margin:0 0 12px;}
 .tpl-tabpanel .hint{margin:0;}
+/* Template chips: card-style so they read as "templates", not mini-tabs. */
+#paramTplList .chip{background:rgba(255,255,255,0.05);border:1px solid #3c3c3c;border-radius:6px;
+  padding:4px 12px;font-size:12px;color:var(--text,#ccc);line-height:16px;
+  transition:border-color .12s,background .12s,color .12s;}
+#paramTplList .chip.default{border-style:dashed;border-color:#4a4a4a;}
+#paramTplList .chip:hover{border-color:var(--accent,#4fc3f7);color:#fff;background:rgba(79,195,247,0.08);}
+#paramTplList .chip.on{border-color:var(--accent,#4fc3f7);color:var(--accent,#4fc3f7);font-weight:600;
+  background:rgba(79,195,247,0.16);box-shadow:inset 0 0 0 1px rgba(79,195,247,0.35);}
+/* Param modal: 4-corner resize + drag-by-title move (replaces this modal's
+   native bottom-right-only resize; other .modal.wide dialogs keep it). */
+#paramOverlay .modal.wide{resize:none;}
+#paramOverlay .modal.wide > h3{cursor:move;}
+#paramOverlay .modal.wide > h3:active{cursor:grabbing;}
+.rz-corner{position:absolute;width:16px;height:16px;z-index:10;}
+.rz-corner::after{content:"";position:absolute;width:6px;height:6px;border-radius:2px;
+  background:var(--text-dim,#888);opacity:.35;}
+.rz-corner:hover::after{opacity:1;background:var(--accent,#4fc3f7);}
+.rz-nw{top:0;left:0;cursor:nwse-resize;}
+.rz-nw::after{top:5px;left:5px;}
+.rz-ne{top:0;right:0;cursor:nesw-resize;}
+.rz-ne::after{top:5px;right:5px;}
+.rz-sw{bottom:0;left:0;cursor:nesw-resize;}
+.rz-sw::after{bottom:5px;left:5px;}
+.rz-se{bottom:0;right:0;cursor:nwse-resize;}
+.rz-se::after{bottom:5px;right:5px;}
 /* Log extract: rule chips reuse .tpl-saved/.chip; small edit/delete marks. */
 #leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;cursor:pointer;font-size:10px;}
 #leRuleList .chip .del{color:var(--red,#f48771);}

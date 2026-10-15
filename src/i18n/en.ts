@@ -420,6 +420,8 @@ export const en: Record<string, string> = {
   "webview.catDeleted": "Deleted category: {name} (templates moved back to Uncategorized)",
   "webview.catDeleteTitle": "Delete this category (templates move back to Uncategorized)",
   "webview.catDragTitle": "Drag to reorder categories",
+  "webview.modalResizeTitle": "Drag to resize the dialog",
+  "webview.modalMoveTitle": "Drag the title bar to move the dialog",
   "webview.leNoSelection": "Select pipelines in the table first",
   "webview.leNoRules": "No extraction rules yet. Create one via \"＋ New Rule\" first",
   "webview.leEditTitle": "Edit rule",
