@@ -923,7 +923,78 @@ async function checkTimeouts() {
 }
 
 /* ============ 参数弹窗 ============ */
+/* ---- 参数弹窗：四角拖拽调大小 + 标题栏拖动移位 ----
+   弹窗默认由 overlay 弹性居中；一旦开始拖拽，先把几何"实体化"为
+   absolute 定位（left/top/width/height），之后四角改变大小的同时
+   也移动位置。每次重新打开时恢复默认居中。 */
+const PARAM_MODAL_MIN_W = 420, PARAM_MODAL_MIN_H = 300;
+function resetParamModalBox() {
+  const m = document.querySelector("#paramOverlay .modal");
+  if (!m) return;
+  ["position", "left", "top", "width", "height", "margin", "maxWidth", "maxHeight"]
+    .forEach((p) => { m.style[p] = ""; });
+}
+function materializeParamModalBox(m) {
+  if (m.style.position === "absolute") return;
+  const r = m.getBoundingClientRect();
+  m.style.position = "absolute";
+  m.style.margin = "0";
+  m.style.maxWidth = "none";
+  m.style.maxHeight = "none";
+  m.style.left = r.left + "px";
+  m.style.top = r.top + "px";
+  m.style.width = r.width + "px";
+  m.style.height = r.height + "px";
+}
+function startParamModalDrag(e, m, mode) { // mode: "move" | "nw" | "ne" | "sw" | "se"
+  if (e.button !== 0) return;
+  e.preventDefault();
+  materializeParamModalBox(m);
+  const s = { x: e.clientX, y: e.clientY, l: m.offsetLeft, t: m.offsetTop, w: m.offsetWidth, h: m.offsetHeight };
+  const maxW = window.innerWidth - 16, maxH = window.innerHeight - 16;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  const onMove = (ev) => {
+    const dx = ev.clientX - s.x, dy = ev.clientY - s.y;
+    if (mode === "move") {
+      m.style.left = clamp(s.l + dx, -s.w + 60, window.innerWidth - 60) + "px";
+      m.style.top = clamp(s.t + dy, 0, window.innerHeight - 40) + "px";
+      return;
+    }
+    let w = s.w, h = s.h, l = s.l, tp = s.t;
+    if (mode.includes("e")) w = clamp(s.w + dx, PARAM_MODAL_MIN_W, maxW);
+    if (mode.includes("w")) { w = clamp(s.w - dx, PARAM_MODAL_MIN_W, maxW); l = s.l + (s.w - w); }
+    if (mode.includes("s")) h = clamp(s.h + dy, PARAM_MODAL_MIN_H, maxH);
+    if (mode.includes("n")) { h = clamp(s.h - dy, PARAM_MODAL_MIN_H, maxH); tp = s.t + (s.h - h); }
+    m.style.width = w + "px";
+    m.style.height = h + "px";
+    m.style.left = clamp(l, 0, window.innerWidth - 60) + "px";
+    m.style.top = clamp(tp, 0, window.innerHeight - 40) + "px";
+  };
+  const onUp = () => {
+    document.removeEventListener("mousemove", onMove);
+    document.removeEventListener("mouseup", onUp);
+  };
+  document.addEventListener("mousemove", onMove);
+  document.addEventListener("mouseup", onUp);
+}
+function setupParamModalDragResize() {
+  const m = document.querySelector("#paramOverlay .modal");
+  if (!m) return;
+  ["nw", "ne", "sw", "se"].forEach((dir) => {
+    const h = document.createElement("div");
+    h.className = "rz-corner rz-" + dir;
+    h.addEventListener("mousedown", (e) => startParamModalDrag(e, m, dir));
+    m.appendChild(h);
+  });
+  const head = m.querySelector("h3");
+  if (head) head.addEventListener("mousedown", (e) => startParamModalDrag(e, m, "move"));
+}
+setupParamModalDragResize();
 document.getElementById("btnParams").onclick = () => {
+  resetParamModalBox(); // re-center on every open; hints need i18n loaded
+  document.querySelectorAll("#paramOverlay .modal .rz-corner").forEach((h) => { h.title = t("webview.modalResizeTitle"); });
+  const pmHead = document.querySelector("#paramOverlay .modal > h3");
+  if (pmHead) pmHead.title = t("webview.modalMoveTitle");
   renderKv(); renderParamTpl(); syncJsonFromParams();
   document.getElementById("paramOverlay").classList.add("show");
 };
@@ -960,16 +1031,26 @@ document.getElementById("btnParamTplCancel").onclick = () => document.getElement
 document.getElementById("btnParamTplSave").onclick = () => {
   const name = document.getElementById("paramTplName").value.trim();
   if (!name) { toast(t("webview.tplNameRequired")); return; }
-  // New templates always land in the uncategorized tab — switch to it so the
-  // fresh chip is visible (updating an existing template keeps its tab).
-  const isNew = !STATE.paramTemplates.some((x) => x.name === name);
-  if (isNew) activeTplTab = "";
   rpc("saveParamTpl", { name, params: params.map((p) => p.slice()) }).then((r) => {
-    applyParamResult(r);
-    document.getElementById("paramTplOverlay").classList.remove("show");
-    activeParamTpl = name; renderParamBtn();
-    toast(t("webview.tplSaved", {name})); logMsg(t("webview.tplCreated", {name}), "ok");
-    rpc("saveActiveTpl", { name });
+    // Save As Template defaults to the CURRENT tab's category: after saving,
+    // a category-less template is moved into the active tab via the existing
+    // setTplCategory RPC (pure webview-side chaining — no backend or data-
+    // format change). Updating a template that already has a category keeps
+    // its category; the user can always drag the chip elsewhere afterwards.
+    const finish = (rr) => {
+      applyParamResult(rr || r);
+      document.getElementById("paramTplOverlay").classList.remove("show");
+      activeParamTpl = name; renderParamBtn();
+      toast(t("webview.tplSaved", {name})); logMsg(t("webview.tplCreated", {name}), "ok");
+      rpc("saveActiveTpl", { name });
+    };
+    const fresh = r && r.paramTemplates ? r.paramTemplates.find((x) => x.name === name) : null;
+    if (fresh && !fresh.category && activeTplTab) {
+      rpc("setTplCategory", { id: fresh.id, category: activeTplTab })
+        .then((r2) => finish(r2 && r2.paramTemplates ? r2 : r));
+    } else {
+      finish(r);
+    }
   });
 };
 

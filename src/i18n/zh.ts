@@ -420,6 +420,8 @@ export const zh: Record<string, string> = {
   "webview.catDeleted": "已删除分类：{name}（模板已移回未分类）",
   "webview.catDeleteTitle": "删除该分类（模板将移回未分类）",
   "webview.catDragTitle": "拖拽调整分类顺序",
+  "webview.modalResizeTitle": "拖动调整弹窗大小",
+  "webview.modalMoveTitle": "拖动标题栏移动弹窗",
   "webview.leNoSelection": "请先在列表中选中 pipeline",
   "webview.leNoRules": "暂无提取规则，请先点「＋ 新建规则」创建",
   "webview.leEditTitle": "编辑规则",
