@@ -1344,12 +1344,21 @@ document.addEventListener("mouseup", () => {
 
 /* ============ 日志提取 ============ */
 let leSelectedRules = new Set(); // selected rule ids
-let leTargets = [];              // [{nodeId, label, jobPath, buildNumber, status, checked}]
+let leTargets = [];              // [{nodeId, label, jobPath, jobUrl, buildNumber, status, checked}]
 let leRows = new Map();          // nodeId -> {state, error?, buildNumber, results[]}
 let leLastTargets = [];
 let leLastRules = [];
 let leRunning = false;
 let leCancelled = false;
+
+// Real build address of a target (Jenkins job URL + build number), e.g.
+// https://host/job/infra/job/k8s/.../job/testjob1/123/. Empty when the job
+// URL is unknown — callers fall back to the plain "#number" in that case.
+function leBuildUrl(tg) {
+  return tg.jobUrl && tg.buildNumber
+    ? tg.jobUrl.replace(/\/+$/, "") + "/" + tg.buildNumber + "/"
+    : "";
+}
 
 function leGetRules() { return STATE.logExtractRules || []; }
 
@@ -1367,6 +1376,7 @@ function openLogExtract() {
     nodeId: d.id,
     label: getPipelineDisplayLabel(d),
     jobPath: d.jobPath || d.name,
+    jobUrl: d.jobUrl || "",
     buildNumber: d.buildNumber || 0,
     status: d.status || "unknown",
   }));
@@ -1446,7 +1456,13 @@ function renderLeResults(targets, rules) {
   targets.forEach((tg) => {
     const row = leRows.get(tg.nodeId);
     const tr = document.createElement("tr");
-    let html = "<td>" + escapeHtml(tg.label) + "</td><td class='tbuild'>#" + tg.buildNumber + "</td>";
+    // The "#" column shows the REAL build address (clickable → opens in the
+    // browser); falls back to the plain build number if the URL is unknown.
+    const burl = leBuildUrl(tg);
+    const numHtml = burl
+      ? "<td class='tbuild'><span class='le-blink' data-leurl='" + escapeHtml(burl) + "' title='" + escapeHtml(burl) + "'>" + escapeHtml(burl) + "</span></td>"
+      : "<td class='tbuild'>#" + tg.buildNumber + "</td>";
+    let html = "<td>" + escapeHtml(tg.label) + "</td>" + numHtml;
     if (!row || row.state === "pending") {
       html += rules.map(() => "<td class='nomatch'>…</td>").join("");
     } else if (row.state === "working") {
@@ -1466,6 +1482,13 @@ function renderLeResults(targets, rules) {
     body.appendChild(tr);
   });
 }
+// Click a build address in the result table to open that build in the browser.
+document.getElementById("leResultBody").addEventListener("click", (e) => {
+  const url = e.target.dataset && e.target.dataset.leurl;
+  if (!url) return;
+  fire("openBuild", { url });
+  logMsg(t("webview.openBrowserLog", { url }), "info");
+});
 
 async function startLeExtract() {
   const rules = leGetRules().filter((r) => leSelectedRules.has(r.id));
@@ -1607,7 +1630,7 @@ function leResultTsv() {
   const lines = [[t("webview.html.thPipeline"), "#"].concat(leLastRules.map((r) => r.name)).join("\t")];
   leLastTargets.forEach((tg) => {
     const row = leRows.get(tg.nodeId);
-    const cells = [tg.label, "#" + tg.buildNumber];
+    const cells = [tg.label, leBuildUrl(tg) || "#" + tg.buildNumber];
     if (!row || row.state !== "ok") {
       leLastRules.forEach((_, i) => cells.push(i === 0 && row && row.error ? row.error : ""));
     } else {
@@ -1629,7 +1652,7 @@ function leResultJson() {
   };
   leLastTargets.forEach((tg) => {
     const row = leRows.get(tg.nodeId);
-    const item = { pipeline: tg.label, jobPath: tg.jobPath, buildNumber: tg.buildNumber, values: {} };
+    const item = { pipeline: tg.label, jobPath: tg.jobPath, buildNumber: tg.buildNumber, buildUrl: leBuildUrl(tg), values: {} };
     if (!row || row.state !== "ok") {
       item.error = (row && row.error) || t("webview.leFetchFailed");
     } else {
