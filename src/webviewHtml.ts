@@ -162,6 +162,11 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .le-table td.nomatch{color:var(--text-dim,#888);font-style:italic;}
 .le-table td.err{color:var(--red,#f48771);}
 .le-table td.val{font-family:var(--font-mono,monospace);color:var(--green,#81c784);}
+/* Log extract: the "#" column shows the real build address (clickable → browser). */
+.le-table td.tbuild{font-family:var(--font-mono,monospace);font-size:11px;max-width:280px;}
+.le-table td.tbuild .le-blink{color:var(--accent,#4fc3f7);cursor:pointer;
+  text-decoration:underline dotted;text-underline-offset:2px;}
+.le-table td.tbuild .le-blink:hover{color:#fff;}
 /* Log extract: write-back area */
 .le-writeback{border-top:1px dashed var(--border,#333);padding-top:8px;font-size:12px;}
 .le-writeback label{cursor:pointer;}
