@@ -286,7 +286,7 @@ function render() {
   if (list.length) { es.style.display = "none"; }
   else {
     es.style.display = "block";
-    es.textContent = STATE.selectedNodes.length === 0
+    es.querySelector(".empty-text").textContent = STATE.selectedNodes.length === 0
       ? t("webview.emptyNoSelection")
       : t("webview.emptyNoMatch");
   }
@@ -482,7 +482,7 @@ function renderKv() {
   box.innerHTML = params.length ? "" : '<div class="hint">' + t("webview.noParams") + '</div>';
   params.forEach((p, i) => {
     const row = document.createElement("div"); row.className = "kv-row";
-    row.innerHTML = `<input class="k" value="${p[0]}" placeholder="KEY"><input value="${p[1]}" placeholder="VALUE"><span class="del">✕</span>`;
+    row.innerHTML = `<input class="k" value="${p[0]}" placeholder="KEY"><input value="${p[1]}" placeholder="VALUE"><span class="del codicon codicon-close" title="${escapeHtml(t("webview.delRowTitle"))}"></span>`;
     row.querySelector(".k").oninput = (e) => { params[i][0] = e.target.value; onParamsChanged(); };
     row.querySelectorAll("input")[1].oninput = (e) => { params[i][1] = e.target.value; onParamsChanged(); };
     row.querySelector(".del").onclick = () => { params.splice(i, 1); renderKv(); onParamsChanged(); };
@@ -524,7 +524,7 @@ function buildTplChip(tpl, box) {
   const isDefault = tpl.id === 0;
   const isActive = tpl.name === activeParamTpl;
   c.className = "chip" + (isDefault ? " default" : "") + (isActive ? " on" : "");
-  c.innerHTML = escapeHtml(tpl.name) + (isDefault ? "" : ' <span class="del" data-ptdel="' + tpl.id + '">✕</span>');
+  c.innerHTML = escapeHtml(tpl.name) + (isDefault ? "" : ' <span class="del codicon codicon-close" data-ptdel="' + tpl.id + '" title="' + escapeHtml(t("webview.delTplTitle")) + '"></span>');
   // Drag to reorder templates (and move them between categories).
   c.draggable = true;
   c.addEventListener("dragstart", (e) => {
@@ -598,7 +598,7 @@ function buildTplTab(cat, list, box) {
   tab.className = "tpl-tab" + (cat === activeTplTab ? " on" : "");
   tab.innerHTML = '<span class="cat-name">' + escapeHtml(cat || t("webview.uncategorized")) + '</span>' +
     '<span class="cat-count">' + list.length + '</span>' +
-    (cat ? '<span class="cat-del" title="' + escapeHtml(t("webview.catDeleteTitle")) + '">✕</span>' : '');
+    (cat ? '<span class="cat-del codicon codicon-close" title="' + escapeHtml(t("webview.catDeleteTitle")) + '"></span>' : '');
   tab.onclick = (e) => {
     if (e.target.classList.contains("cat-del")) return;
     if (activeTplTab !== cat) { activeTplTab = cat; renderParamTpl(); }
@@ -1406,8 +1406,8 @@ function renderLeRules() {
     const c = document.createElement("span");
     c.className = "chip" + (leSelectedRules.has(r.id) ? " on" : "");
     c.innerHTML = (r.kind === "script" ? '<span class="kind">ƒ</span>' : "") + escapeHtml(r.name) +
-      ' <span class="edit" data-leedit="' + r.id + '" title="' + escapeHtml(t("webview.leEditTitle")) + '">✎</span>' +
-      ' <span class="del" data-ledel="' + r.id + '">✕</span>';
+      ' <span class="edit codicon codicon-edit" data-leedit="' + r.id + '" title="' + escapeHtml(t("webview.leEditTitle")) + '"></span>' +
+      ' <span class="del codicon codicon-close" data-ledel="' + r.id + '" title="' + escapeHtml(t("webview.delRuleTitle")) + '"></span>';
     c.onclick = (e) => {
       if (e.target.dataset.leedit) { e.stopPropagation(); openLeRuleModal(r); return; }
       if (e.target.dataset.ledel) {

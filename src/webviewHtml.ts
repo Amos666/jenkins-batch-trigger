@@ -26,9 +26,11 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
   const styleContent = tpl.slice(styleOpen + "<style>".length, styleClose);
 
   const nonce = getNonce();
+  const codiconUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "codicon.ttf"));
   const csp = [
     "default-src 'none'",
-    `img-src ${webview.cspSource} https: data:`,
+    `img-src ${webview.cspSource} data:`,
+    `font-src ${webview.cspSource}`,
     `style-src 'unsafe-inline' ${webview.cspSource}`,
     `script-src 'nonce-${nonce}'`,
   ].join("; ");
@@ -42,6 +44,10 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
 <title>Jenkins Batch Trigger</title>
 <style>
 ${styleContent}
+/* Codicon font (bundled at media/codicon.ttf, loaded via asWebviewUri + CSP font-src) */
+@font-face{font-family:"codicon";src:url("${codiconUri}") format("truetype");font-weight:400;font-style:normal;font-display:block;}
+.codicon{font-family:"codicon";font-size:14px;line-height:1;display:inline-block;
+  -webkit-font-smoothing:antialiased;user-select:none;flex:0 0 auto;}
 /* center-only: ensure the panel fills the webview with no leftover sidebar layout */
 .app{height:100vh;display:flex;flex-direction:column;overflow:hidden;}
 .center{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
@@ -52,30 +58,31 @@ ${styleContent}
 table{table-layout:fixed;width:100%;}
 th{position:relative;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 th .col-resizer{position:absolute;right:0;top:0;width:5px;height:100%;cursor:col-resize;user-select:none;}
-th .col-resizer:hover,th .col-resizer.dragging{background:var(--accent,#4fc3f7);opacity:0.6;}
+th .col-resizer:hover,th .col-resizer.dragging{background:var(--accent);opacity:0.6;}
 td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 /* Per-job parameter inline editor */
 tr.param-row{display:none;}
 tr.param-row.show{display:table-row;}
-tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:1px solid var(--border,#333);}
+tr.param-row td{padding:8px 12px;background:var(--vscode-editorWidget-background);border-bottom:1px solid var(--hairline);}
 .job-param-box{display:flex;gap:8px;align-items:flex-start;}
-.job-param-box textarea{flex:1;min-height:80px;max-height:200px;background:#1b1b1b;border:1px solid #333;border-radius:4px;
-  color:var(--text,#ddd);font-family:var(--font-mono,monospace);font-size:12px;padding:6px 8px;resize:vertical;outline:none;}
-.job-param-box textarea:focus{border-color:var(--accent,#4fc3f7);}
-.job-param-box textarea.err{border-color:var(--red,#f48771);}
+.job-param-box textarea{flex:1;min-height:80px;max-height:200px;background:var(--vscode-input-background);border:1px solid var(--vscode-input-border,transparent);border-radius:3px;
+  color:var(--vscode-input-foreground);font-family:var(--font-mono);font-size:12px;padding:6px 8px;resize:vertical;
+  transition:border-color .12s ease;}
+.job-param-box textarea:focus{border-color:var(--vscode-focusBorder);}
+.job-param-box textarea.err{border-color:var(--vscode-inputValidation-errorBorder);}
 .job-param-actions{display:flex;flex-direction:column;gap:4px;}
 .job-param-actions .btn{padding:3px 10px;font-size:11px;}
-.job-param-status{font-size:11px;color:var(--text-dim,#888);margin-top:2px;}
-.job-param-status.err{color:var(--red,#f48771);}
-.job-param-status.ok{color:var(--green,#81c784);}
+.job-param-status{font-size:11px;color:var(--text-dim);margin-top:2px;}
+.job-param-status.err{color:var(--red);}
+.job-param-status.ok{color:var(--green);}
 .link.param-btn{cursor:pointer;padding:2px 6px;border-radius:3px;}
-.link.param-btn:hover{background:rgba(255,255,255,0.08);}
-.link.param-btn.has-params{color:var(--accent,#4fc3f7);font-weight:600;}
-.link.param-btn.has-job-params{color:var(--red,#f48771);font-weight:600;}
+.link.param-btn:hover{background:color-mix(in srgb, var(--vscode-foreground) 8%, transparent);}
+.link.param-btn.has-params{color:var(--vscode-textLink-foreground);font-weight:600;}
+.link.param-btn.has-job-params{color:var(--red);font-weight:600;}
 .tpl-saved .chip{cursor:grab;user-select:none;}
 .tpl-saved .chip.dragging{opacity:.4;cursor:grabbing;}
-.tpl-saved .chip.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
-.tpl-saved .chip.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
+.tpl-saved .chip.drop-before{box-shadow:-2px 0 0 0 var(--accent);}
+.tpl-saved .chip.drop-after{box-shadow:2px 0 0 0 var(--accent);}
 /* Template category tabs: categories render as horizontal tabs (uncategorized
    always first); only the active tab's chips are shown, so the param editor
    below keeps its full height. Tabs sit on a recessed strip with an accent
@@ -83,41 +90,43 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
    are visually distinct at a glance. */
 #paramTplList{display:block;}
 .tpl-tabs{display:flex;gap:4px;flex-wrap:nowrap;overflow-x:auto;align-items:flex-end;
-  margin:8px 0 0;padding:4px 6px 0;border-radius:8px 8px 0 0;
-  background:rgba(0,0,0,0.22);border-bottom:2px solid var(--border,#333);}
+  margin:8px 0 0;padding:4px 6px 0;border-radius:4px 4px 0 0;
+  background:color-mix(in srgb, var(--vscode-foreground) 4%, transparent);border-bottom:1px solid var(--border);}
 .tpl-tab{display:inline-flex;align-items:center;gap:7px;padding:5px 14px;font-size:11px;
-  color:var(--text-dim,#888);cursor:pointer;user-select:none;white-space:nowrap;flex:0 0 auto;
-  border:1px solid transparent;border-bottom:none;border-radius:7px 7px 0 0;position:relative;top:1px;
-  background:rgba(255,255,255,0.03);}
-.tpl-tab:hover{color:var(--text,#ddd);background:rgba(255,255,255,0.08);}
-.tpl-tab.on{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.12);font-weight:600;}
+  color:var(--text-dim);cursor:pointer;user-select:none;white-space:nowrap;flex:0 0 auto;
+  border:1px solid transparent;border-bottom:none;border-radius:3px 3px 0 0;position:relative;top:1px;
+  background:color-mix(in srgb, var(--vscode-foreground) 4%, transparent);
+  transition:background-color .12s ease,color .12s ease,border-color .12s ease;}
+.tpl-tab:hover{color:var(--text);background:color-mix(in srgb, var(--vscode-foreground) 8%, transparent);}
+.tpl-tab.on{color:var(--accent);background:color-mix(in srgb, var(--accent) 12%, transparent);font-weight:600;}
 .tpl-tab.on::after{content:"";position:absolute;left:-1px;right:-1px;bottom:-2px;height:2px;
-  background:var(--accent,#4fc3f7);}
-.tpl-tab .cat-count{color:var(--text-dim,#888);background:rgba(255,255,255,0.08);
-  border-radius:9px;padding:0 7px;font-size:10px;line-height:16px;}
-.tpl-tab.on .cat-count{color:#0b0b0b;background:var(--accent,#4fc3f7);}
-.tpl-tab .cat-del{color:var(--red,#f48771);cursor:pointer;font-size:10px;padding:0 2px;opacity:.7;}
+  background:var(--accent);}
+.tpl-tab .cat-count{color:var(--text-dim);background:color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
+  border-radius:4px;padding:0 7px;font-size:10px;line-height:16px;}
+.tpl-tab.on .cat-count{color:var(--vscode-button-foreground);background:var(--accent);}
+.tpl-tab .cat-del{color:var(--red);cursor:pointer;font-size:11px;padding:0 2px;opacity:.7;}
 .tpl-tab .cat-del:hover{opacity:1;}
 /* Drag a tab horizontally to reorder categories; drop a chip onto a tab to
    move it to that category (other categories are hidden behind their tabs). */
 .tpl-tab.cat-draggable{cursor:grab;}
 .tpl-tab.cat-draggable:active{cursor:grabbing;}
 .tpl-tab.dragging{opacity:.5;}
-.tpl-tab.drop-hover{color:var(--accent,#4fc3f7);background:rgba(79,195,247,0.18);
-  box-shadow:inset 0 0 0 1px var(--accent,#4fc3f7);}
-.tpl-tab.drop-before{box-shadow:-2px 0 0 0 var(--accent,#4fc3f7);}
-.tpl-tab.drop-after{box-shadow:2px 0 0 0 var(--accent,#4fc3f7);}
+.tpl-tab.drop-hover{color:var(--accent);background:color-mix(in srgb, var(--accent) 18%, transparent);
+  box-shadow:inset 0 0 0 1px var(--accent);}
+.tpl-tab.drop-before{box-shadow:-2px 0 0 0 var(--accent);}
+.tpl-tab.drop-after{box-shadow:2px 0 0 0 var(--accent);}
 .tpl-tabpanel{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
   padding:10px 2px;min-height:42px;margin:0 0 12px;}
 .tpl-tabpanel .hint{margin:0;}
 /* Template chips: card-style so they read as "templates", not mini-tabs. */
-#paramTplList .chip{background:rgba(255,255,255,0.05);border:1px solid #3c3c3c;border-radius:6px;
-  padding:4px 12px;font-size:12px;color:var(--text,#ccc);line-height:16px;
+#paramTplList .chip{background:color-mix(in srgb, var(--vscode-foreground) 5%, transparent);
+  border:1px solid color-mix(in srgb, var(--vscode-foreground) 16%, transparent);border-radius:4px;
+  padding:4px 12px;font-size:12px;color:var(--text);line-height:16px;
   transition:border-color .12s,background .12s,color .12s;}
-#paramTplList .chip.default{border-style:dashed;border-color:#4a4a4a;}
-#paramTplList .chip:hover{border-color:var(--accent,#4fc3f7);color:#fff;background:rgba(79,195,247,0.08);}
-#paramTplList .chip.on{border-color:var(--accent,#4fc3f7);color:var(--accent,#4fc3f7);font-weight:600;
-  background:rgba(79,195,247,0.16);box-shadow:inset 0 0 0 1px rgba(79,195,247,0.35);}
+#paramTplList .chip.default{border-style:dashed;border-color:color-mix(in srgb, var(--vscode-foreground) 22%, transparent);}
+#paramTplList .chip:hover{border-color:var(--accent);color:var(--text);background:color-mix(in srgb, var(--accent) 8%, transparent);}
+#paramTplList .chip.on{border-color:var(--accent);color:var(--accent);font-weight:600;
+  background:color-mix(in srgb, var(--accent) 16%, transparent);box-shadow:inset 0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);}
 /* Param modal: 4-corner resize + drag-by-title move (replaces this modal's
    native bottom-right-only resize; other .modal.wide dialogs keep it). */
 #paramOverlay .modal.wide{resize:none;}
@@ -125,8 +134,8 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 #paramOverlay .modal.wide > h3:active{cursor:grabbing;}
 .rz-corner{position:absolute;width:16px;height:16px;z-index:10;}
 .rz-corner::after{content:"";position:absolute;width:6px;height:6px;border-radius:2px;
-  background:var(--text-dim,#888);opacity:.35;}
-.rz-corner:hover::after{opacity:1;background:var(--accent,#4fc3f7);}
+  background:var(--text-dim);opacity:.35;}
+.rz-corner:hover::after{opacity:1;background:var(--accent);}
 .rz-nw{top:0;left:0;cursor:nwse-resize;}
 .rz-nw::after{top:5px;left:5px;}
 .rz-ne{top:0;right:0;cursor:nesw-resize;}
@@ -136,69 +145,70 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 .rz-se{bottom:0;right:0;cursor:nwse-resize;}
 .rz-se::after{bottom:5px;right:5px;}
 /* Log extract: rule chips reuse .tpl-saved/.chip; small edit/delete marks. */
-#leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;cursor:pointer;font-size:10px;}
-#leRuleList .chip .del{color:var(--red,#f48771);}
-#leRuleList .chip .edit{color:var(--text-dim,#888);}
+#leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;cursor:pointer;font-size:11px;}
+#leRuleList .chip .del{color:var(--red);}
+#leRuleList .chip .edit{color:var(--text-dim);}
 #leRuleList .chip .del:hover,#leRuleList .chip .edit:hover{opacity:1;}
 /* Log extract: target list */
-.le-targets{max-height:150px;overflow:auto;border:1px solid var(--border,#333);border-radius:4px;
-  background:var(--input,#1b1b1b);margin-bottom:10px;}
+.le-targets{max-height:150px;overflow:auto;border:1px solid var(--border);border-radius:3px;
+  background:var(--vscode-input-background);margin-bottom:10px;}
 .le-target-row{display:flex;align-items:center;gap:8px;padding:4px 10px;font-size:12px;
-  border-bottom:1px solid var(--border,#2a2a2a);}
+  border-bottom:1px solid var(--hairline);}
 .le-target-row:last-child{border-bottom:none;}
 .le-target-row.disabled{opacity:.55;}
 .le-target-row .tname{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.le-target-row .tbuild{color:var(--text-dim,#888);font-family:var(--font-mono,monospace);font-size:11px;}
-.le-target-row .tstatus{font-size:10px;padding:1px 7px;border-radius:8px;background:rgba(255,255,255,0.06);color:var(--text-dim,#888);}
-.le-target-row .tstatus.warn{color:var(--red,#f48771);}
+.le-target-row .tbuild{color:var(--text-dim);font-family:var(--font-mono);font-size:11px;}
+.le-target-row .tstatus{font-size:10px;padding:1px 7px;border-radius:4px;background:color-mix(in srgb, var(--vscode-foreground) 6%, transparent);color:var(--text-dim);}
+.le-target-row .tstatus.warn{color:var(--red);}
 /* Log extract: result table */
-.le-result-wrap{max-height:240px;overflow:auto;border:1px solid var(--border,#333);border-radius:4px;margin-bottom:10px;}
+.le-result-wrap{max-height:240px;overflow:auto;border:1px solid var(--border);border-radius:3px;margin-bottom:10px;}
 .le-table{width:100%;border-collapse:collapse;font-size:12px;table-layout:auto;}
-.le-table th,.le-table td{padding:5px 10px;border-bottom:1px solid var(--border,#2a2a2a);
+.le-table th,.le-table td{padding:5px 10px;border-bottom:1px solid var(--hairline);
   text-align:left;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px;}
-.le-table th{position:sticky;top:0;background:var(--bg-alt,#1e1e1e);color:var(--text-dim,#888);
+.le-table th{position:sticky;top:0;background:var(--sidebar);color:var(--text-dim);
   font-weight:600;font-size:11px;z-index:1;}
-.le-table tbody tr:hover{background:rgba(255,255,255,0.03);}
-.le-table td.nomatch{color:var(--text-dim,#888);font-style:italic;}
-.le-table td.err{color:var(--red,#f48771);}
-.le-table td.val{font-family:var(--font-mono,monospace);color:var(--green,#81c784);}
+.le-table tbody tr:hover{background:var(--vscode-list-hoverBackground);}
+.le-table td.nomatch{color:var(--text-dim);font-style:italic;}
+.le-table td.err{color:var(--red);}
+.le-table td.val{font-family:var(--font-mono);color:var(--green);}
 /* Log extract: the "#" column shows the real build address (clickable → browser). */
-.le-table td.tbuild{font-family:var(--font-mono,monospace);font-size:11px;max-width:280px;}
-.le-table td.tbuild .le-blink{color:var(--accent,#4fc3f7);cursor:pointer;
+.le-table td.tbuild{font-family:var(--font-mono);font-size:11px;max-width:280px;}
+.le-table td.tbuild .le-blink{color:var(--vscode-textLink-foreground);cursor:pointer;
   text-decoration:underline dotted;text-underline-offset:2px;}
-.le-table td.tbuild .le-blink:hover{color:#fff;}
+.le-table td.tbuild .le-blink:hover{color:var(--vscode-textLink-activeForeground);}
 /* Log extract: write-back area */
-.le-writeback{border-top:1px dashed var(--border,#333);padding-top:8px;font-size:12px;}
+.le-writeback{border-top:1px dashed var(--border);padding-top:8px;font-size:12px;}
 .le-writeback label{cursor:pointer;}
-.le-wb-row{display:flex;gap:14px;align-items:center;margin:8px 0;color:var(--text-dim,#888);flex-wrap:wrap;}
-.le-wb-row label{cursor:pointer;color:var(--text,#ddd);}
-.le-wb-preview{background:var(--input,#1b1b1b);border:1px solid #333;border-radius:4px;
-  padding:7px 10px;font-size:11px;color:var(--text-dim,#888);max-height:120px;overflow:auto;
-  font-family:var(--font-mono,monospace);line-height:1.7;margin-top:4px;}
+.le-wb-row{display:flex;gap:14px;align-items:center;margin:8px 0;color:var(--text-dim);flex-wrap:wrap;}
+.le-wb-row label{cursor:pointer;color:var(--text);}
+.le-wb-preview{background:var(--vscode-textCodeBlock-background);border:1px solid var(--vscode-input-border,transparent);border-radius:3px;
+  padding:7px 10px;font-size:11px;color:var(--text-dim);max-height:120px;overflow:auto;
+  font-family:var(--font-mono);line-height:1.7;margin-top:4px;}
 .le-wb-preview .wb-skip{font-style:italic;}
-.le-wb-preview .wb-conflict{color:#e5c07b;}
-.le-progress{color:var(--text-dim,#888);font-size:12px;align-self:center;margin-right:8px;}
-.le-rule-err{color:var(--red,#f48771);font-size:11px;margin-top:6px;}
+.le-wb-preview .wb-conflict{color:var(--yellow);}
+.le-progress{color:var(--text-dim);font-size:12px;align-self:center;margin-right:8px;}
+.le-rule-err{color:var(--red);font-size:11px;margin-top:6px;}
 .btn:disabled{opacity:.45;cursor:not-allowed;}
 .le-kind-row{display:flex;gap:18px;align-items:center;}
-.le-kind-row label{display:flex;gap:5px;align-items:center;cursor:pointer;color:var(--text,#ddd);}
-#leRuleCode{width:100%;box-sizing:border-box;font-family:var(--font-mono,monospace);
+.le-kind-row label{display:flex;gap:5px;align-items:center;cursor:pointer;color:var(--text);}
+#leRuleCode{width:100%;box-sizing:border-box;font-family:var(--font-mono);
   font-size:12px;line-height:1.6;resize:vertical;min-height:110px;
-  background:var(--input,#1b1b1b);color:var(--text,#ddd);border:1px solid var(--border,#333);
-  border-radius:4px;padding:7px 10px;}
-#leRuleList .chip .kind{font-family:var(--font-mono,monospace);font-weight:700;
-  color:#61afef;background:rgba(97,175,239,.14);border-radius:3px;padding:0 4px;
+  background:var(--vscode-textCodeBlock-background);color:var(--text);border:1px solid var(--vscode-input-border,transparent);
+  border-radius:3px;padding:7px 10px;transition:border-color .12s ease;}
+#leRuleCode:focus{border-color:var(--vscode-focusBorder);}
+#leRuleList .chip .kind{font-family:var(--font-mono);font-weight:700;
+  color:var(--blue);background:color-mix(in srgb, var(--blue) 14%, transparent);border-radius:3px;padding:0 4px;
   margin-right:3px;font-size:11px;}
 /* Resizable log panel — uses a draggable resizer bar instead of CSS resize
    because resize:vertical does not work reliably on flex column children.
    Override ALL conflicting wireframe properties (display:none, max-height:110px). */
-.log-resizer{flex:0 0 6px;cursor:ns-resize;background:var(--border,#333);
+.log-resizer{flex:0 0 6px;cursor:ns-resize;background:var(--border);
   border-top:1px solid var(--border);border-bottom:1px solid var(--border);}
-.log-resizer:hover,.log-resizer.dragging{background:var(--accent,#4fc3f7);}
-.log-resizer.collapsed{cursor:default;background:var(--border,#333);}
+.log-resizer:hover,.log-resizer.dragging{background:var(--accent);}
+.log-resizer.collapsed{cursor:default;background:var(--border);}
 .logpanel{display:block !important;flex:0 0 120px;flex-grow:0;flex-shrink:0;
   max-height:none !important;min-height:0;height:120px;overflow:auto;border:none;
-  background:#1b1b1b;padding:5px 12px;font-size:11px;color:var(--text-dim);font-family:Consolas,monospace;}
+  background:var(--bg);padding:5px 12px;font-size:11px;color:var(--text-dim);font-family:var(--font-mono);}
 .logpanel.collapsed{flex-basis:0 !important;height:0 !important;padding:0 12px;overflow:hidden;}
 .logpanel div{padding:1px 0;}
 .logpanel .ok{color:var(--green);} .logpanel .err{color:var(--red);} .logpanel .info{color:var(--blue);}
@@ -208,7 +218,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 <div class="app">
   <div class="center">
     <div class="toolbar">
-      <div class="search"><span style="color:var(--text-dim)">🔍</span><input id="searchInput" data-i18n-placeholder="webview.html.searchPlaceholder" placeholder="${t("webview.html.searchPlaceholder")}" /></div>
+      <div class="search"><span class="codicon codicon-search" aria-hidden="true" style="color:var(--text-dim)"></span><input id="searchInput" data-i18n-placeholder="webview.html.searchPlaceholder" placeholder="${t("webview.html.searchPlaceholder")}" /></div>
       <div class="chips" id="statusChips">
         <span class="chip on" data-st="all" data-i18n="webview.html.chipAll">${t("webview.html.chipAll")}</span>
         <span class="chip" data-st="running"><span class="sw" style="background:var(--blue)"></span><span data-i18n="webview.status.running">${t("webview.status.running")}</span></span>
@@ -220,13 +230,13 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
         <select id="autoInt"><option value="5">5s</option><option value="10">10s</option><option value="30">30s</option><option value="60" selected>1m</option><option value="180">3m</option><option value="300">5m</option></select>
       </div>
       <div class="spacer"></div>
-      <button class="btn" id="btnParams" data-i18n-title="webview.html.paramsTitle" title="${t("webview.html.paramsTitle")}"><span data-i18n="webview.html.paramsBtn">${t("webview.html.paramsBtn")}</span> <span id="paramTplLabel">${t("webview.html.noTpl")}</span> <span id="paramCount" class="pcount">0</span></button>
-      <button class="btn primary" id="btnTrigger" data-i18n="webview.html.triggerBtn">${t("webview.html.triggerBtn")}</button>
-      <button class="btn danger" id="btnAbort" data-i18n-title="webview.html.abortTitle" data-i18n="webview.html.abortBtn" title="${t("webview.html.abortTitle")}">${t("webview.html.abortBtn")}</button>
-      <button class="btn primary icon" id="btnRefresh" data-i18n-title="webview.html.refreshTitle" data-i18n="webview.html.refreshBtn" title="${t("webview.html.refreshTitle")}">${t("webview.html.refreshBtn")}</button>
-      <button class="btn" id="btnTimeout" data-i18n-title="webview.html.timeoutTitle" title="${t("webview.html.timeoutTitle")}">⏱ <span data-i18n="webview.html.timeoutBtn">${t("webview.html.timeoutBtn")}</span> <span id="timeoutVal">10</span>m</button>
-      <button class="btn" id="btnActionsConfig" data-i18n-title="webview.html.actionsConfigTitle" title="${t("webview.html.actionsConfigTitle")}">⚡ <span data-i18n="webview.html.actionsConfigBtn">${t("webview.html.actionsConfigBtn")}</span></button>
-      <button class="btn" id="btnLogExtract" data-i18n-title="webview.html.leTitle" title="${t("webview.html.leTitle")}">🔍 <span data-i18n="webview.html.leBtn">${t("webview.html.leBtn")}</span></button>
+      <button class="btn" id="btnParams" data-i18n-title="webview.html.paramsTitle" title="${t("webview.html.paramsTitle")}"><span class="codicon codicon-settings-gear" aria-hidden="true"></span> <span data-i18n="webview.html.paramsBtn">${t("webview.html.paramsBtn")}</span> <span id="paramTplLabel">${t("webview.html.noTpl")}</span> <span id="paramCount" class="pcount">0</span></button>
+      <button class="btn primary" id="btnTrigger"><span class="codicon codicon-play" aria-hidden="true"></span> <span data-i18n="webview.html.triggerBtn">${t("webview.html.triggerBtn")}</span></button>
+      <button class="btn danger" id="btnAbort" data-i18n-title="webview.html.abortTitle" title="${t("webview.html.abortTitle")}"><span class="codicon codicon-debug-stop" aria-hidden="true"></span> <span data-i18n="webview.html.abortBtn">${t("webview.html.abortBtn")}</span></button>
+      <button class="btn primary icon" id="btnRefresh" data-i18n-title="webview.html.refreshTitle" title="${t("webview.html.refreshTitle")}"><span class="codicon codicon-refresh" aria-hidden="true"></span> <span data-i18n="webview.html.refreshBtn">${t("webview.html.refreshBtn")}</span></button>
+      <button class="btn" id="btnTimeout" data-i18n-title="webview.html.timeoutTitle" title="${t("webview.html.timeoutTitle")}"><span class="codicon codicon-clock" aria-hidden="true"></span> <span data-i18n="webview.html.timeoutBtn">${t("webview.html.timeoutBtn")}</span> <span id="timeoutVal">10</span>m</button>
+      <button class="btn" id="btnActionsConfig" data-i18n-title="webview.html.actionsConfigTitle" title="${t("webview.html.actionsConfigTitle")}"><span class="codicon codicon-zap" aria-hidden="true"></span> <span data-i18n="webview.html.actionsConfigBtn">${t("webview.html.actionsConfigBtn")}</span></button>
+      <button class="btn" id="btnLogExtract" data-i18n-title="webview.html.leTitle" title="${t("webview.html.leTitle")}"><span class="codicon codicon-search" aria-hidden="true"></span> <span data-i18n="webview.html.leBtn">${t("webview.html.leBtn")}</span></button>
     </div>
     <div class="tablewrap">
       <table>
@@ -244,7 +254,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
         </tr></thead>
         <tbody id="tbody"></tbody>
       </table>
-      <div class="empty-state" id="emptyState" style="display:none" data-i18n="webview.html.empty">${t("webview.html.empty")}</div>
+      <div class="empty-state" id="emptyState" style="display:none"><span class="codicon codicon-search" aria-hidden="true"></span> <span class="empty-text" data-i18n="webview.html.empty">${t("webview.html.empty")}</span></div>
     </div>
     <div class="actionbar">
       <span class="sel"><span data-i18n="webview.html.selected">${t("webview.html.selected")}</span> <b id="selCount">0</b> / <span id="totalCount">0</span></span>
@@ -260,7 +270,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 
 <div class="overlay" id="paramOverlay">
   <div class="modal wide">
-    <h3 data-i18n="webview.html.paramModalTitle">${t("webview.html.paramModalTitle")}</h3>
+    <h3><span class="codicon codicon-settings-gear" aria-hidden="true"></span><span data-i18n="webview.html.paramModalTitle">${t("webview.html.paramModalTitle")}</span></h3>
     <div class="body">
       <div class="hint" data-i18n="webview.html.paramModalHint">${t("webview.html.paramModalHint")}</div>
       <div class="tpl-chips">
@@ -412,7 +422,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 
 <div class="overlay" id="triggerOverlay">
   <div class="modal">
-    <h3 data-i18n="webview.html.triggerModalTitle">${t("webview.html.triggerModalTitle")}</h3>
+    <h3><span class="codicon codicon-play" aria-hidden="true"></span><span data-i18n="webview.html.triggerModalTitle">${t("webview.html.triggerModalTitle")}</span></h3>
     <div class="body">
       <div class="hint" data-i18n="webview.html.triggerHint">${t("webview.html.triggerHint")}</div>
       <textarea class="prev" id="triggerPreviewText" readonly></textarea>
@@ -426,7 +436,7 @@ tr.param-row td{padding:8px 12px;background:var(--bg-alt,#1e1e1e);border-bottom:
 
 <div class="overlay" id="timeoutOverlay">
   <div class="modal">
-    <h3 data-i18n="webview.html.timeoutModalTitle">${t("webview.html.timeoutModalTitle")}</h3>
+    <h3><span class="codicon codicon-clock" aria-hidden="true"></span><span data-i18n="webview.html.timeoutModalTitle">${t("webview.html.timeoutModalTitle")}</span></h3>
     <div class="body">
       <div class="field"><label data-i18n="webview.html.timeoutModalLabel">${t("webview.html.timeoutModalLabel")}</label><input type="number" id="timeoutInput" min="1" step="1" /> <span style="color:var(--text-dim)" data-i18n="webview.html.timeoutModalUnit">${t("webview.html.timeoutModalUnit")}</span></div>
     </div>
