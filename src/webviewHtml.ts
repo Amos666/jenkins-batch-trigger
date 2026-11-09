@@ -48,6 +48,18 @@ ${styleContent}
 @font-face{font-family:"codicon";src:url("${codiconUri}") format("truetype");font-weight:400;font-style:normal;font-display:block;}
 .codicon{font-family:"codicon";font-size:14px;line-height:1;display:inline-block;
   -webkit-font-smoothing:antialiased;user-select:none;flex:0 0 auto;}
+/* Glyph definitions (codepoints from @vscode/codicons codicon.css).
+   Without these :before rules the icon spans render empty and become
+   unclickable, which silently breaks the chip delete/edit marks. */
+.codicon-search:before{content:"\\ea6d";}
+.codicon-edit:before{content:"\\ea73";}
+.codicon-close:before{content:"\\ea76";}
+.codicon-clock:before{content:"\\ea82";}
+.codicon-zap:before{content:"\\ea86";}
+.codicon-debug-stop:before{content:"\\ead7";}
+.codicon-play:before{content:"\\eb2c";}
+.codicon-refresh:before{content:"\\eb37";}
+.codicon-settings-gear:before{content:"\\eb51";}
 /* center-only: ensure the panel fills the webview with no leftover sidebar layout */
 .app{height:100vh;display:flex;flex-direction:column;overflow:hidden;}
 .center{flex:1;display:flex;flex-direction:column;overflow:hidden;min-width:0;}
@@ -104,7 +116,7 @@ tr.param-row td{padding:8px 12px;background:var(--vscode-editorWidget-background
 .tpl-tab .cat-count{color:var(--text-dim);background:color-mix(in srgb, var(--vscode-foreground) 8%, transparent);
   border-radius:4px;padding:0 7px;font-size:10px;line-height:16px;}
 .tpl-tab.on .cat-count{color:var(--vscode-button-foreground);background:var(--accent);}
-.tpl-tab .cat-del{color:var(--red);cursor:pointer;font-size:11px;padding:0 2px;opacity:.7;}
+.tpl-tab .cat-del{color:var(--red);cursor:pointer;font-size:11px;padding:2px 3px;opacity:.7;}
 .tpl-tab .cat-del:hover{opacity:1;}
 /* Drag a tab horizontally to reorder categories; drop a chip onto a tab to
    move it to that category (other categories are hidden behind their tabs). */
@@ -145,7 +157,7 @@ tr.param-row td{padding:8px 12px;background:var(--vscode-editorWidget-background
 .rz-se{bottom:0;right:0;cursor:nwse-resize;}
 .rz-se::after{bottom:5px;right:5px;}
 /* Log extract: rule chips reuse .tpl-saved/.chip; small edit/delete marks. */
-#leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;cursor:pointer;font-size:11px;}
+#leRuleList .chip .del,#leRuleList .chip .edit{margin-left:5px;margin-right:-3px;cursor:pointer;font-size:11px;padding:2px 3px;}
 #leRuleList .chip .del{color:var(--red);}
 #leRuleList .chip .edit{color:var(--text-dim);}
 #leRuleList .chip .del:hover,#leRuleList .chip .edit:hover{opacity:1;}
