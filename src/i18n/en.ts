@@ -122,9 +122,9 @@ export const en: Record<string, string> = {
   "action.scriptFailed": "script execution failed: {error}",
 
   // ---- Settings panel ----
-  "settings.title": "JKS Setting",
-  "settings.connSection": "JKS Connection Settings",
-  "settings.generalSection": "JKS General Settings",
+  "settings.title": "Jenkins Setting",
+  "settings.connSection": "Jenkins Connection Settings",
+  "settings.generalSection": "Jenkins General Settings",
   "settings.treeDefaultState": "Sidebar tree default state",
   "settings.treeExpanded": "Expanded by default",
   "settings.treeCollapsed": "Collapsed by default",
