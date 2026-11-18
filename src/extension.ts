@@ -207,6 +207,9 @@ export function activate(context: vscode.ExtensionContext): void {
         const cfg = vscode.workspace.getConfiguration("jenkinsBatchTrigger");
         setLocale((cfg.get<string>("language") as Locale) || "zh");
       }
+      if (e.affectsConfiguration("jenkinsBatchTrigger.treeDefaultState")) {
+        tree.refresh();
+      }
     })
   );
 

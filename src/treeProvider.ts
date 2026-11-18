@@ -63,12 +63,15 @@ export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       const children = this.state.getChildren(element.id);
       const jobCount = this.countJobsRecursive(element.id);
       const selCount = this.countSelectedJobs(element.id);
-      const item = new vscode.TreeItem(
-        element.name,
-        children.length > 0
+      // Folder default expand/collapse state is user-configurable in
+      // JKS Setting → JKS General Settings (jenkinsBatchTrigger.treeDefaultState).
+      const treeDefaultState =
+        vscode.workspace.getConfiguration("jenkinsBatchTrigger").get<string>("treeDefaultState") || "expanded";
+      const folderState =
+        children.length > 0 && treeDefaultState !== "collapsed"
           ? vscode.TreeItemCollapsibleState.Expanded
-          : vscode.TreeItemCollapsibleState.Collapsed
-      );
+          : vscode.TreeItemCollapsibleState.Collapsed;
+      const item = new vscode.TreeItem(element.name, folderState);
       item.description = `${selCount}/${jobCount}`;
       item.iconPath = new vscode.ThemeIcon("folder");
       item.tooltip = new vscode.MarkdownString(
