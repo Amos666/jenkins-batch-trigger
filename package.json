@@ -2,7 +2,7 @@
   "name": "jenkins-batch-trigger",
   "displayName": "Jenkins Pipeline Batch Trigger",
   "description": "Batch trigger Jenkins pipelines with custom params, monitor realtime status, organize jobs in a user-defined tree.",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "publisher": "ghemail",
   "license": "MIT",
   "repository": {
@@ -123,6 +123,13 @@
           "enumDescriptions": ["中文", "English"],
           "default": "zh",
           "description": "UI display language / 界面显示语言"
+        },
+        "jenkinsBatchTrigger.treeDefaultState": {
+          "type": "string",
+          "enum": ["expanded", "collapsed"],
+          "enumDescriptions": ["Expand folders by default / 默认展开", "Collapse folders by default / 默认合并（收起）"],
+          "default": "expanded",
+          "description": "Default expand/collapse state of sidebar tree folders on open / 左侧树状栏打开时的默认状态"
         }
       }
     }
