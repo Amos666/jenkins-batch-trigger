@@ -64,7 +64,7 @@ export class SidebarTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       const jobCount = this.countJobsRecursive(element.id);
       const selCount = this.countSelectedJobs(element.id);
       // Folder default expand/collapse state is user-configurable in
-      // JKS Setting → JKS General Settings (jenkinsBatchTrigger.treeDefaultState).
+      // Jenkins Setting → Jenkins General Settings (jenkinsBatchTrigger.treeDefaultState).
       const treeDefaultState =
         vscode.workspace.getConfiguration("jenkinsBatchTrigger").get<string>("treeDefaultState") || "expanded";
       const folderState =

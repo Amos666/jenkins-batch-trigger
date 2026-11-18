@@ -122,9 +122,9 @@ export const zh: Record<string, string> = {
   "action.scriptFailed": "script 执行失败: {error}",
 
   // ---- Settings panel ----
-  "settings.title": "JKS 设置",
-  "settings.connSection": "JKS 连接设置",
-  "settings.generalSection": "JKS 通用设置",
+  "settings.title": "Jenkins 设置",
+  "settings.connSection": "Jenkins 连接设置",
+  "settings.generalSection": "Jenkins 通用设置",
   "settings.treeDefaultState": "左侧树状栏默认状态",
   "settings.treeExpanded": "默认展开",
   "settings.treeCollapsed": "默认合并（收起）",
