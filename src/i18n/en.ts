@@ -122,7 +122,12 @@ export const en: Record<string, string> = {
   "action.scriptFailed": "script execution failed: {error}",
 
   // ---- Settings panel ----
-  "settings.title": "Jenkins Connection Settings",
+  "settings.title": "Jenkins Setting",
+  "settings.connSection": "Jenkins Connection Settings",
+  "settings.generalSection": "Jenkins General Settings",
+  "settings.treeDefaultState": "Sidebar tree default state",
+  "settings.treeExpanded": "Expanded by default",
+  "settings.treeCollapsed": "Collapsed by default",
   "settings.url": "Jenkins URL",
   "settings.urlPlaceholder": "https://jenkins.example.com",
   "settings.username": "Username",
